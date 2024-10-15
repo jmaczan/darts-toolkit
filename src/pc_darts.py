@@ -54,16 +54,16 @@ class PCDARTSSearchSpace(nn.Module):
         ):  # iterates over each intermediate node in the cell
             node_inputs = []  # for each node, we will store inputs here
             for i in range(min(node + 2, len(states))):
-                sampled_channels = torch.randperm(
-                    self.in_channels
-                )[
+                sampled_channels = torch.randperm(self.in_channels)[
                     : self.num_partial_channel_connections
-                ]  # partial channel connections - reduced number of channels, randomly chosen, in search space
+                ]
+                # partial channel connections - reduced number of channels, randomly chosen, in search space
                 # iterate over all possible input states for current node.
                 # +2 because each node can take input from all previous nodes plus two initial inputs
                 # which is output of the previous call and output of the previous-previous cell
                 op_weights = F.softmax(
-                    self.arch_parameters[node][i] / self.edge_normalization[node][i],
+                    self.arch_parameters[node][i]
+                    / self.edge_normalization[node][i].clamp(min=1e-5),
                     dim=-1,
                 )  # softmax to architectural parameters for current node and input
                 # these parametsr tell us about importance of each operation in this particular connection
