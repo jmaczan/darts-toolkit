@@ -1,0 +1,22 @@
+data:
+  dataset: cifar10
+  data_dir: './data'
+  batch_size: 128
+  num_workers: 4
+
+model:
+  in_channels: 3
+  num_classes: 10
+  num_nodes: 4
+  num_ops: 5
+
+training:
+  max_epochs: 50
+  momentum: 0.9
+  learning_rate: 0.025
+  weight_decay: 0.0003
+  gpus: 1
+
+logging:
+  log_dir: 'logs/'
+  experiment_name: 'pc_darts'

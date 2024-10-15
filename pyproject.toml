@@ -1,0 +1,13 @@
+[project]
+name = "pc-darts"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "lightning>=2.4.0",
+    "rich>=13.9.2",
+    "tensorboard>=2.18.0",
+    "torch>=2.4.1",
+    "torchvision>=0.19.1",
+]
