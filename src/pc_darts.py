@@ -57,7 +57,7 @@ class PCDARTSSearchSpace(nn.Module):
             self.num_nodes
         ):  # iterates over each intermediate node in the cell
             node_inputs = []  # for each node, we will store inputs here
-            for i in range(node + 2):
+            for i in range(min(node + 2, len(states))):
                 # iterate over all possible input states for current node.
                 # +2 because each node can take input from all previous nodes plus two initial inputs
                 # which is output of the previous call and output of the previous-previous cell
@@ -219,6 +219,7 @@ class CIFAR10DataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
+            persistent_workers=True,
         )
 
     def val_dataloader(self):
@@ -231,7 +232,10 @@ class CIFAR10DataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(
-            self.cifar_test, batch_size=self.batch_size, num_workers=self.num_workers
+            self.cifar_test,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            persistent_workers=True,
         )
 
 
