@@ -10,7 +10,6 @@ from torch.utils.data import DataLoader, random_split
 import yaml
 
 
-# TODO: for now it's not partially-connected yet
 class PCDARTSSearchSpace(nn.Module):
     def __init__(
         self, num_nodes, num_ops, in_channels, num_partial_channel_connections
@@ -35,19 +34,8 @@ class PCDARTSSearchSpace(nn.Module):
         self.candidate_operations = nn.ModuleList(
             [
                 nn.Identity(),
-                nn.Conv2d(
-                    in_channels=in_channels,
-                    out_channels=in_channels,
-                    kernel_size=3,
-                    padding=1,
-                    bias=False,
-                ),
-                nn.Conv2d(
-                    in_channels=in_channels,
-                    out_channels=in_channels,
-                    kernel_size=1,
-                    bias=False,
-                ),
+                DynamicSizeConv2d(kernel_size=3, padding=1),
+                DynamicSizeConv2d(kernel_size=1),
                 nn.MaxPool2d(kernel_size=3, stride=1, padding=1),
                 nn.AvgPool2d(kernel_size=3, stride=1, padding=1),
             ]
@@ -75,7 +63,7 @@ class PCDARTSSearchSpace(nn.Module):
                 # these parametsr tell us about importance of each operation in this particular connection
                 for j, op in enumerate(self.candidate_operations):
                     # go through all candidate operations (poolings, convs etc.)
-                    if isinstance(op, nn.Conv2d) or isinstance(op, nn.Identity):
+                    if isinstance(op, (DynamicSizeConv2d, nn.Identity)):
                         # for convolutions and identity, apply operation only on randomly sampled channels
                         x_sampled = states[i][:, sampled_channels]
                         output = op(x_sampled)
@@ -84,7 +72,7 @@ class PCDARTSSearchSpace(nn.Module):
                         expanded_output = torch.zeros_like(states[i])
                         expanded_output[:, sampled_channels] = output
                         node_inputs.append(op_weights[j] * expanded_output)
-                    else:
+                    else:  # pooling operations
                         node_inputs.append(
                             op_weights[j] * op(states[i])
                         )  # this is the most important part - it applies all operations and weights their outputs;
@@ -258,6 +246,20 @@ class CIFAR10DataModule(pl.LightningDataModule):
             num_workers=self.num_workers,
             persistent_workers=True,
         )
+
+
+class DynamicSizeConv2d(nn.Module):
+    def __init__(self, kernel_size, padding=0):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.padding = padding
+
+    def forward(self, x):
+        weight = torch.randn(
+            x.size(1), x.size(1), self.kernel_size, self.kernel_size, device=x.device
+        )
+
+        return F.conv2d(x, weight, padding=self.padding)
 
 
 def load_config(config_path):
