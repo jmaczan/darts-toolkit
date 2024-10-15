@@ -30,6 +30,11 @@ class PCDARTSSearchSpace(nn.Module):
             ]
         )
 
+        # edge normalization
+        self.edge_normalization = nn.ParameterList(
+            [nn.Parameter(torch.ones(i + 2)) for i in range(self.num_nodes)]
+        )
+
         # set of possible candidates for operations
         self.candidate_operations = nn.ModuleList(
             [
@@ -58,7 +63,8 @@ class PCDARTSSearchSpace(nn.Module):
                 # +2 because each node can take input from all previous nodes plus two initial inputs
                 # which is output of the previous call and output of the previous-previous cell
                 op_weights = F.softmax(
-                    self.arch_parameters[node][i], dim=-1
+                    self.arch_parameters[node][i] / self.edge_normalization[node][i],
+                    dim=-1,
                 )  # softmax to architectural parameters for current node and input
                 # these parametsr tell us about importance of each operation in this particular connection
                 for j, op in enumerate(self.candidate_operations):
