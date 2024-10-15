@@ -12,11 +12,14 @@ import yaml
 
 # TODO: for now it's not partially-connected yet
 class PCDARTSSearchSpace(nn.Module):
-    def __init__(self, num_nodes, num_ops, in_channels):
+    def __init__(
+        self, num_nodes, num_ops, in_channels, num_partial_channel_connections
+    ):
         super(PCDARTSSearchSpace, self).__init__()
         self.num_nodes = num_nodes
         self.num_ops = num_ops
         self.in_channels = in_channels
+        self.num_partial_channel_connections = num_partial_channel_connections
 
         # initial architecture params (alpha)
         # they are learnable
@@ -58,6 +61,11 @@ class PCDARTSSearchSpace(nn.Module):
         ):  # iterates over each intermediate node in the cell
             node_inputs = []  # for each node, we will store inputs here
             for i in range(min(node + 2, len(states))):
+                sampled_channels = torch.randperm(
+                    self.in_channels
+                )[
+                    : self.num_partial_channel_connections
+                ]  # partial channel connections - reduced number of channels, randomly chosen, in search space
                 # iterate over all possible input states for current node.
                 # +2 because each node can take input from all previous nodes plus two initial inputs
                 # which is output of the previous call and output of the previous-previous cell
@@ -67,11 +75,21 @@ class PCDARTSSearchSpace(nn.Module):
                 # these parametsr tell us about importance of each operation in this particular connection
                 for j, op in enumerate(self.candidate_operations):
                     # go through all candidate operations (poolings, convs etc.)
-                    node_inputs.append(
-                        op_weights[j] * op(states[i])
-                    )  # this is the most important part - it applies all operations and weights their outputs;
-                    # this is what is called 'continuous relaxation' - applying all operations and weighting them,
-                    # instead of selecting a single opration
+                    if isinstance(op, nn.Conv2d) or isinstance(op, nn.Identity):
+                        # for convolutions and identity, apply operation only on randomly sampled channels
+                        x_sampled = states[i][:, sampled_channels]
+                        output = op(x_sampled)
+
+                        # expand output back to original amount of channels
+                        expanded_output = torch.zeros_like(states[i])
+                        expanded_output[:, sampled_channels] = output
+                        node_inputs.append(op_weights[j] * expanded_output)
+                    else:
+                        node_inputs.append(
+                            op_weights[j] * op(states[i])
+                        )  # this is the most important part - it applies all operations and weights their outputs;
+                        # this is what is called 'continuous relaxation' - applying all operations and weighting them,
+                        # instead of selecting a single opration
             states.append(
                 sum(node_inputs)
             )  # after processing all inputs and operations for a node, we sum the weighted inputs
@@ -117,6 +135,9 @@ class PCDARTSLightningModule(pl.LightningModule):
             in_channels=stem_output_channels,
             num_nodes=config["model"]["num_nodes"],
             num_ops=config["model"]["num_ops"],
+            num_partial_channel_connections=config["model"][
+                "num_partial_channel_connections"
+            ],
         )
 
         self.classifier = nn.Sequential(

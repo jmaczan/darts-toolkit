@@ -1,6 +1,6 @@
 data:
   dataset: cifar10
-  data_dir: './data'
+  data_dir: "./data"
   batch_size: 128
   num_workers: 4
 
@@ -9,6 +9,7 @@ model:
   num_classes: 10
   num_nodes: 4
   num_ops: 5
+  num_partial_channel_connections: 4
 
 training:
   max_epochs: 50
@@ -18,5 +19,5 @@ training:
   gpus: 1
 
 logging:
-  log_dir: 'logs/'
-  experiment_name: 'pc_darts'
+  log_dir: "logs/"
+  experiment_name: "pc_darts"
