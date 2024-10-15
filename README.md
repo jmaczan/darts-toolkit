@@ -1,21 +1,27 @@
 # pc-darts
+
 [Partially-Connected](https://arxiv.org/abs/1907.05737) [Differentiable Architecture Search](https://arxiv.org/abs/1806.09055) in PyTorch Lightning from scratch
 
 🚧 Under heavy development
 
-It uses [uv for package management](https://docs.astral.sh/uv/)
-
 ## Install
+
+This project uses [uv](https://docs.astral.sh/uv/) for package management
+
+Also, it uses Ruff for formatting if you run the project in VS Code. You can install Ruff plugin by Astral Software from extensions marketplace and you're good to go
+
 ```sh
 uv sync
 ```
 
 ## Run
+
 ```sh
 uv run src/pc_darts.py
 ```
 
 ## Cite
+
 If you use this software in your research, please use the following citation:
 
 ```bibtex
@@ -28,9 +34,10 @@ publisher = {GitHub}
 }
 ```
 
-
 ## License
+
 GNU GPLv3
 
 ## Author
+
 Jędrzej Maczan 2024

@@ -12,11 +12,11 @@ import yaml
 
 # TODO: for now it's not partially-connected yet
 class PCDARTSSearchSpace(nn.Module):
-    def __init__(self, config):
+    def __init__(self, num_nodes, num_ops, in_channels):
         super(PCDARTSSearchSpace, self).__init__()
-        self.num_nodes = config["model"]["num_nodes"]
-        self.num_ops = config["model"]["num_ops"]
-        in_channels = config["model"]["in_channels"]
+        self.num_nodes = num_nodes
+        self.num_ops = num_ops
+        self.in_channels = in_channels
 
         # initial architecture params (alpha)
         # they are learnable
@@ -87,20 +87,45 @@ class PCDARTSLightningModule(pl.LightningModule):
 
         self.stem = nn.Sequential(
             nn.Conv2d(
-                in_channels=config["model"]["in_channels"],
+                in_channels=3,
                 out_channels=16,
                 kernel_size=3,
+                stride=1,
                 padding=1,
                 bias=False,
             ),
             nn.BatchNorm2d(num_features=16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(
+                in_channels=16,
+                out_channels=32,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                bias=False,
+            ),
+            nn.BatchNorm2d(num_features=32),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
         )
 
-        self.search_space = PCDARTSSearchSpace(config=config)
+        stem_output_channels = self._get_output_channels(self.stem)
+
+        self.search_space = PCDARTSSearchSpace(
+            in_channels=stem_output_channels,
+            num_nodes=config["model"]["num_nodes"],
+            num_ops=config["model"]["num_ops"],
+        )
+
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d(output_size=1),
             nn.Flatten(),
-            nn.Linear(in_features=16, out_features=config["model"]["num_classes"]),
+            nn.Linear(
+                in_features=stem_output_channels,
+                out_features=config["model"]["num_classes"],
+            ),
         )
 
     def forward(self, x):
@@ -135,6 +160,22 @@ class PCDARTSLightningModule(pl.LightningModule):
         )
 
         return [optimizer], [scheduler]
+
+    def _get_output_channels(self, module):
+        if hasattr(module, "num_features"):
+            return module.num_features
+        elif hasattr(module, "out_channels"):
+            return module.out_channels
+        elif isinstance(module, nn.Sequential):
+            for layer in reversed(module):
+                if hasattr(layer, "num_features"):
+                    return layer.num_features
+                if hasattr(layer, "out_channels"):
+                    return layer.out_channels
+        else:
+            raise ValueError(
+                f"Unsupported module type: {type(module)}. Perhaps you want to add it to _get_output_channel() function to compute number of channels correctly"
+            )
 
 
 class CIFAR10DataModule(pl.LightningDataModule):
