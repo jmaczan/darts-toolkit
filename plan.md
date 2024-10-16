@@ -10,23 +10,6 @@
 ## Next Steps
 
 ### 1. Core PC-DARTS Algorithm Improvements
-
-1.1. Implement Partial Channel Connections
-
-- Add channel sampling mechanism
-- Modify forward pass to use sampled channels
-
-  1.2. Add Edge Normalization
-
-- Implement edge normalization technique
-- Integrate with existing architecture parameters
-
-  1.3. Implement Bilevel Optimization
-
-- Separate architecture parameters and network weights
-- Create two optimizers: one for arch params, one for weights
-- Implement alternating optimization in training loop
-
   1.4. Add Architecture Derivation
 
 - Implement method to derive final architecture from learned parameters

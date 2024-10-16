@@ -31,7 +31,7 @@ class PCDARTSSearchSpace(nn.Module):
         )
 
         # edge normalization
-        self.edge_normalization = nn.ParameterList(
+        self.edge_norms = nn.ParameterList(
             [nn.Parameter(torch.ones(i + 2)) for i in range(self.num_nodes)]
         )
 
@@ -63,7 +63,7 @@ class PCDARTSSearchSpace(nn.Module):
                 # which is output of the previous call and output of the previous-previous cell
                 op_weights = F.softmax(
                     self.arch_parameters[node][i]
-                    / self.edge_normalization[node][i].clamp(min=1e-5),
+                    / self.edge_norms[node][i].clamp(min=1e-5),
                     dim=-1,
                 )  # softmax to architectural parameters for current node and input
                 # these parametsr tell us about importance of each operation in this particular connection
@@ -132,6 +132,8 @@ class PCDARTSLightningModule(pl.LightningModule):
             num_partial_channel_connections=config["model"][
                 "num_partial_channel_connections"
             ],
+            edge_norm_init=config["model"].get("edge_norm_init", 1.0),
+            edge_norm_strength=config["model"].get("edge_norm_strength", 1.0),
         )
 
         self.classifier = nn.Sequential(
@@ -143,16 +145,32 @@ class PCDARTSLightningModule(pl.LightningModule):
             ),
         )
 
+        self.arch_params = list(self.search_space.arch_parameters.parameters())
+        self.edge_norm_params = list(self.search_space.edge_norms.parameters())
+        self.weight_params = list(self.stem.parameters()) + list(
+            self.classifier.parameters()
+        )
+
+        self.automatic_optimization = False
+
     def forward(self, x):
         x = self.stem(x)
         x = self.search_space(x)
         return self.classifier(x)
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, optimizer_idx):
         x, y = batch
         logits = self(x)
         loss = F.cross_entropy(logits, y)
-        self.log("train_loss", loss)
+
+        # depending on which optimizer is used:
+        if optimizer_idx == 0:  # weight optimizer
+            self.log("train_loss_weights", loss)
+        elif optimizer_idx == 1:  # architecture optimizer
+            self.log("train_loss_arch", loss)
+        else:  # edge norm optimizer
+            self.log("train_loss_edge_norm", loss)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -164,17 +182,37 @@ class PCDARTSLightningModule(pl.LightningModule):
         self.log("val_acc", acc)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.SGD(
-            params=self.parameters(),
+        # optimizer for model's weights
+        optimizer_weights = torch.optim.SGD(
+            params=self.weight_params,
             lr=self.config["training"]["learning_rate"],
             momentum=self.config["training"]["momentum"],
             weight_decay=self.config["training"]["weight_decay"],
         )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer=optimizer, T_max=self.config["training"]["max_epochs"]
+
+        # optimizer for architecture parameters
+        optimizer_arch = torch.optim.Adam(
+            params=self.arch_params,
+            lr=self.config["training"]["arch_learning_rate"],
+            betas=(0.5, 0.999),
+            weight_decay=self.config["training"]["arch_weight_decay"],
         )
 
-        return [optimizer], [scheduler]
+        # optimizer for edge normalization parameters
+        optimizer_edge_norm = torch.optim.Adam(
+            params=self.edge_norm_params,
+            lr=self.config["training"]["edge_norm_learning_rate"],
+            betas=(0.5, 0.999),
+            weight_decay=self.config["training"]["edge_norm_weight_decay"],
+        )
+
+        weights_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer=optimizer_weights, T_max=self.config["training"]["max_epochs"]
+        )
+
+        return [optimizer_weights, optimizer_arch, optimizer_edge_norm], [
+            weights_scheduler
+        ]
 
     def _get_output_channels(self, module):
         if hasattr(module, "num_features"):

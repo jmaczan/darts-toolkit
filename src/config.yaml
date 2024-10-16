@@ -15,7 +15,11 @@ training:
   max_epochs: 50
   momentum: 0.9
   learning_rate: 0.025
+  arch_learning_rate: 0.001
+  edge_norm_learning_rate: 0.001
   weight_decay: 0.0003
+  arch_weight_decay: 0.001
+  edge_norm_weight_decay: 0.001
   gpus: 1
 
 logging:
