@@ -158,20 +158,42 @@ class PCDARTSLightningModule(pl.LightningModule):
         x = self.search_space(x)
         return self.classifier(x)
 
+    # bilevel optimization
     def training_step(self, batch, batch_idx, optimizer_idx):
-        x, y = batch
-        logits = self(x)
-        loss = F.cross_entropy(logits, y)
+        optimizer_weights, optimizer_arch, optimizer_edge_norm = self.optimizers()
 
-        # depending on which optimizer is used:
-        if optimizer_idx == 0:  # weight optimizer
-            self.log("train_loss_weights", loss)
-        elif optimizer_idx == 1:  # architecture optimizer
-            self.log("train_loss_arch", loss)
-        else:  # edge norm optimizer
-            self.log("train_loss_edge_norm", loss)
+        input_train, target_train = batch["train"]  # for updating network weights
+        input_search, target_search = batch[
+            "search"
+        ]  # for updating architecture params
 
-        return loss
+        # update architecture parameters "upper-level optimization"
+        optimizer_arch.zero_grad()
+        logits_arch = self(input_search)
+        loss_arch = F.cross_entropy(logits_arch, target_search)
+        self.manual_backward(loss_arch)
+        optimizer_arch.step()
+
+        # update edge normalization parameters; it helps to stabilize the search process, by balacing the importance of different edges;
+        # sounds smart, but I'm unsure how and why it works, yet
+        optimizer_edge_norm.zero_grad()
+        logits_edge_norm = self(input_search)
+        loss_edge_norm = F.cross_entropy(logits_edge_norm, target_search)
+        self.manual_backward(loss_edge_norm)
+        optimizer_edge_norm.step()
+
+        # update network weights "lower-level optimization"
+        optimizer_weights.zero_grad()
+        logits_weights = self(input_train)
+        loss_weights = F.cross_entropy(logits_weights, target_train)
+        self.manual_backward(loss_weights)
+        optimizer_weights.step()
+
+        self.log("train_loss_weights", loss_weights)
+        self.log("train_loss_arch", loss_arch)
+        self.log("train_loss_edge_norm", loss_edge_norm)
+
+        return {"loss": loss_weights}
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
@@ -250,6 +272,16 @@ class CIFAR10DataModule(pl.LightningDataModule):
             ]
         )
 
+        # transforms without data augmentation
+        self.test_transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
+                ),
+            ]
+        )
+
     def prepare_data(self):
         datasets.CIFAR10(root=self.data_dir, train=True, download=True)
         datasets.CIFAR10(root=self.data_dir, train=False, download=True)
@@ -259,21 +291,40 @@ class CIFAR10DataModule(pl.LightningDataModule):
             cifar_full = datasets.CIFAR10(
                 root=self.data_dir, train=True, transform=self.transform
             )
-            self.cifar_train, self.cifar_val = random_split(cifar_full, [45000, 5000])
+            train_size = int(0.8 * len(cifar_full))
+            val_size = len(cifar_full) - train_size
+
+            self.cifar_train, self.cifar_val = random_split(
+                cifar_full, [train_size, val_size]
+            )
+
+            search_size = int(0.5 * len(self.cifar_train))
+            self.cifar_train, self.cifar_search = random_split(
+                self.cifar_train, [len(self.cifar_train) - search_size, search_size]
+            )
 
         if stage == "test" or stage is None:
             self.cifar_test = datasets.CIFAR10(
-                root=self.data_dir, train=False, transform=self.transform
+                root=self.data_dir, train=False, transform=self.test_transform
             )
 
     def train_dataloader(self):
-        return DataLoader(
-            self.cifar_train,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            persistent_workers=True,
-        )
+        return {
+            "train": DataLoader(
+                self.cifar_train,
+                batch_size=self.batch_size,
+                shuffle=True,
+                num_workers=self.num_workers,
+                persistent_workers=True,
+            ),
+            "search": DataLoader(
+                self.cifar_search,
+                batch_size=self.batch_size,
+                shuffle=True,
+                num_workers=self.num_workers,
+                persistent_workers=True,
+            ),
+        }
 
     def val_dataloader(self):
         return DataLoader(
