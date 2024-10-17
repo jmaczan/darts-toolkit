@@ -12,13 +12,21 @@ import yaml
 
 class PCDARTSSearchSpace(nn.Module):
     def __init__(
-        self, num_nodes, num_ops, in_channels, num_partial_channel_connections
+        self,
+        num_nodes,
+        num_ops,
+        in_channels,
+        num_partial_channel_connections,
+        edge_norm_init=1.0,
+        edge_norm_strength=1.0,
     ):
         super(PCDARTSSearchSpace, self).__init__()
         self.num_nodes = num_nodes
         self.num_ops = num_ops
         self.in_channels = in_channels
         self.num_partial_channel_connections = num_partial_channel_connections
+        self.edge_norm_init = edge_norm_init
+        self.edge_norm_strength = edge_norm_strength
 
         # initial architecture params (alpha)
         # they are learnable
@@ -32,7 +40,10 @@ class PCDARTSSearchSpace(nn.Module):
 
         # edge normalization
         self.edge_norms = nn.ParameterList(
-            [nn.Parameter(torch.ones(i + 2)) for i in range(self.num_nodes)]
+            [
+                nn.Parameter(torch.full((i + 2,), edge_norm_init))
+                for i in range(self.num_nodes)
+            ]
         )
 
         # set of possible candidates for operations
@@ -61,9 +72,11 @@ class PCDARTSSearchSpace(nn.Module):
                 # iterate over all possible input states for current node.
                 # +2 because each node can take input from all previous nodes plus two initial inputs
                 # which is output of the previous call and output of the previous-previous cell
-                op_weights = F.softmax(
+
+                clamped_norms = self.edge_norms[node][i].clamp(min=1e-5)
+                normalized_weights = F.softmax(
                     self.arch_parameters[node][i]
-                    / self.edge_norms[node][i].clamp(min=1e-5),
+                    / (clamped_norms**self.edge_norm_strength),
                     dim=-1,
                 )  # softmax to architectural parameters for current node and input
                 # these parametsr tell us about importance of each operation in this particular connection
@@ -77,10 +90,10 @@ class PCDARTSSearchSpace(nn.Module):
                         # expand output back to original amount of channels
                         expanded_output = torch.zeros_like(states[i])
                         expanded_output[:, sampled_channels] = output
-                        node_inputs.append(op_weights[j] * expanded_output)
+                        node_inputs.append(normalized_weights[j] * expanded_output)
                     else:  # pooling operations
                         node_inputs.append(
-                            op_weights[j] * op(states[i])
+                            normalized_weights[j] * op(states[i])
                         )  # this is the most important part - it applies all operations and weights their outputs;
                         # this is what is called 'continuous relaxation' - applying all operations and weighting them,
                         # instead of selecting a single opration
@@ -159,7 +172,7 @@ class PCDARTSLightningModule(pl.LightningModule):
         return self.classifier(x)
 
     # bilevel optimization
-    def training_step(self, batch, batch_idx, optimizer_idx):
+    def training_step(self, batch, batch_idx):
         optimizer_weights, optimizer_arch, optimizer_edge_norm = self.optimizers()
 
         input_train, target_train = batch["train"]  # for updating network weights
@@ -370,8 +383,8 @@ def main():
 
     trainer = pl.Trainer(
         max_epochs=config["training"]["max_epochs"],
-        accelerator="gpu" if config["training"]["gpus"] else "auto",
-        devices=config["training"]["gpus"] or 0,
+        accelerator="gpu" if config["training"].get("gpus") else "auto",
+        devices=config["training"].get("gpus") or "auto",
         # devices=config["training"]["gpus"] if torch.cuda.is_available() else 0,
         callbacks=[RichProgressBar()],
         logger=TensorBoardLogger(

@@ -10,6 +10,8 @@ model:
   num_nodes: 4
   num_ops: 5
   num_partial_channel_connections: 4
+  edge_norm_init: 1.0
+  edge_norm_strength: 1.0
 
 training:
   max_epochs: 50
@@ -20,7 +22,7 @@ training:
   weight_decay: 0.0003
   arch_weight_decay: 0.001
   edge_norm_weight_decay: 0.001
-  gpus: 1
+  #gpus: 1
 
 logging:
   log_dir: "logs/"
