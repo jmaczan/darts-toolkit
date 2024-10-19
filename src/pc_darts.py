@@ -552,7 +552,7 @@ def main():
 
     derived_model = model.train_derived_architecture(
         derived_architecture=model.derive_architecture(),
-        train_loader=data_module.train_dataloader(),
+        train_loader=data_module.train_dataloader()["train"],
         val_loader=data_module.val_dataloader(),
         epochs=config["training"]["derived_epochs"],
     )
