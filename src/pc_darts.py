@@ -3,10 +3,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import RichProgressBar
+from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, random_split
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import yaml
 
 
@@ -110,33 +111,9 @@ class PCDARTSLightningModule(pl.LightningModule):
         self.save_hyperparameters()
         self.config = config
 
-        self.stem = nn.Sequential(
-            nn.Conv2d(
-                in_channels=3,
-                out_channels=16,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                bias=False,
-            ),
-            nn.BatchNorm2d(num_features=16),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(
-                in_channels=16,
-                out_channels=32,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                bias=False,
-            ),
-            nn.BatchNorm2d(num_features=32),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-        )
+        self.stem = get_default_stem()
 
-        stem_output_channels = self._get_output_channels(self.stem)
+        stem_output_channels = get_output_channels(self.stem)
 
         self.search_space = PCDARTSSearchSpace(
             in_channels=stem_output_channels,
@@ -149,13 +126,9 @@ class PCDARTSLightningModule(pl.LightningModule):
             edge_norm_strength=config["model"].get("edge_norm_strength", 1.0),
         )
 
-        self.classifier = nn.Sequential(
-            nn.AdaptiveAvgPool2d(output_size=1),
-            nn.Flatten(),
-            nn.Linear(
-                in_features=stem_output_channels,
-                out_features=config["model"]["num_classes"],
-            ),
+        self.classifier = get_default_classifier(
+            in_features=stem_output_channels,
+            out_features=config["model"]["num_classes"],
         )
 
         self.arch_params = list(self.search_space.arch_parameters.parameters())
@@ -241,7 +214,7 @@ class PCDARTSLightningModule(pl.LightningModule):
             weight_decay=self.config["training"]["edge_norm_weight_decay"],
         )
 
-        weights_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        weights_scheduler = CosineAnnealingLR(
             optimizer=optimizer_weights, T_max=self.config["training"]["max_epochs"]
         )
 
@@ -249,21 +222,46 @@ class PCDARTSLightningModule(pl.LightningModule):
             weights_scheduler
         ]
 
-    def _get_output_channels(self, module):
-        if hasattr(module, "num_features"):
-            return module.num_features
-        elif hasattr(module, "out_channels"):
-            return module.out_channels
-        elif isinstance(module, nn.Sequential):
-            for layer in reversed(module):
-                if hasattr(layer, "num_features"):
-                    return layer.num_features
-                if hasattr(layer, "out_channels"):
-                    return layer.out_channels
-        else:
-            raise ValueError(
-                f"Unsupported module type: {type(module)}. Perhaps you want to add it to _get_output_channel() function to compute number of channels correctly"
-            )
+    def derive_architecture(self):
+        final_architecture = []
+        for node in range(self.search_space.num_nodes):
+            node_operations = []
+            for i in range(node + 2):
+                # pick the operation with the highest weight for each edge
+                operation_weights = F.softmax(
+                    self.search_space.arch_parameters[node][i], dim=-1
+                )
+                best_operation_index = operation_weights.argmax().item()
+                best_operation = self.search_space.candidate_operations[
+                    best_operation_index
+                ]
+                node_operations.append((i, best_operation))
+            final_architecture.append(node_operations)
+        return final_architecture
+
+    def train_derived_architecture(
+        self, derived_architecture, train_loader, val_loader, epochs=100
+    ):
+        """Train the derived architecture from scratch"""
+        derived_model = DerivedPCDARTSModel(
+            derived_architecture=derived_architecture,
+            num_classes=self.config["model"]["num_classes"],
+            in_channels=self.search_space.in_channels,
+        )
+
+        trainer = pl.Trainer(
+            max_epochs=epochs,
+            accelerator=self.config["training"].get("accelerator", "auto"),
+            devices=self.config["training"].get("devices", 1),
+            callbacks=[ModelCheckpoint(monitor="val_acc", mode="max")],
+            logger=TensorBoardLogger(
+                save_dir=self.config["logging"]["log_dir"], name="derived_model"
+            ),
+        )
+
+        trainer.fit(derived_model, train_loader, val_loader)
+
+        return derived_model
 
 
 class CIFAR10DataModule(pl.LightningDataModule):
@@ -370,6 +368,151 @@ class DynamicSizeConv2d(nn.Module):
         return F.conv2d(x, weight, padding=self.padding)
 
 
+class DerivedPCDARTSModel(pl.LightningModule):
+    def __init__(self, derived_architecture, config):
+        super().__init__()
+        self.derived_architecture = derived_architecture
+        self.save_hyperparameters()
+        self.num_nodes = len(derived_architecture)
+
+        self.in_channels = config["model"]["in_channels"]
+        self.num_classes = config["model"]["num_classes"]
+        self.num_cells = config["model"]["num_cells"]
+
+        self.stem = get_default_stem()
+
+        self.cells = nn.ModuleList([self._make_cell() for _ in range(self.num_cells)])
+        self.global_pooling = nn.AdaptiveAvgPool2d(output_size=1)
+
+        stem_output_channels = get_output_channels(self.stem)
+
+        self.classifier = get_default_classifier(
+            in_features=stem_output_channels, out_features=self.num_classes
+        )
+
+    def _make_cell(self):
+        cell = nn.ModuleList()
+
+        for node_ops in self.derived_architecture:
+            node = nn.ModuleList()
+            for i, op_type in node_ops:
+                if op_type == nn.Identity:
+                    node.append(op_type())
+                elif op_type in (nn.MaxPool2d, nn.AvgPool2d):
+                    node.append(
+                        op_type(3, stride=1, padding=1)
+                    )  # TODO: too much hardcoding
+                else:  # assumes it's conv operations TODO: update it when more candidate ops are possible
+                    conv = nn.Conv2d(
+                        in_channels=self.in_channels,
+                        out_channels=self.in_channels,
+                        kernel_size=3,
+                        padding=1,
+                        bias=False,
+                    )  # TODO: update it when introducing more operations
+                    bn = nn.BatchNorm2d(num_features=self.in_channels)
+                    node.append(nn.Sequential(conv, bn))
+            cell.append(node)
+
+        return cell
+
+    def forward(self, x):
+        x = self.stem(x)
+        for cell in self.cells:
+            inputs = [x]
+            for node in cell:
+                node_input = sum(op(inputs[i]) for i, op in enumerate(node))
+                inputs.append(node_input)
+            x = inputs[-1]
+        x = self.global_pooling(x)
+        x = x.view(x.size(0), -1)
+        return self.classifier(x)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        self.log("val_loss", loss)
+        self.log("val_acc", acc)
+        return {"val_loss": loss, "val_acc": acc}
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.SGD(
+            params=self.parameters(),
+            lr=self.config["training"]["learning_rate"],
+            momentum=self.config["training"]["momentum"],
+            weight_decay=self.config["training"]["weight_decay"],
+        )
+        scheduler = CosineAnnealingLR(
+            optimizer, T_max=self.config["training"]["max_epochs"]
+        )
+        return [optimizer], [scheduler]
+
+
+def get_default_stem():
+    return nn.Sequential(
+        nn.Conv2d(
+            in_channels=3,
+            out_channels=16,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False,
+        ),
+        nn.BatchNorm2d(num_features=16),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(
+            in_channels=16,
+            out_channels=32,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False,
+        ),
+        nn.BatchNorm2d(num_features=32),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False),
+        nn.BatchNorm2d(64),
+        nn.ReLU(inplace=True),
+    )
+
+
+def get_default_classifier(in_features, out_features):
+    return nn.Sequential(
+        nn.AdaptiveAvgPool2d(output_size=1),
+        nn.Flatten(),
+        nn.Linear(
+            in_features=in_features,
+            out_features=out_features,
+        ),
+    )
+
+
+def get_output_channels(module):
+    if hasattr(module, "num_features"):
+        return module.num_features
+    elif hasattr(module, "out_channels"):
+        return module.out_channels
+    elif isinstance(module, nn.Sequential):
+        for layer in reversed(module):
+            if hasattr(layer, "num_features"):
+                return layer.num_features
+            if hasattr(layer, "out_channels"):
+                return layer.out_channels
+    else:
+        raise ValueError(
+            f"Unsupported module type: {type(module)}. Perhaps you want to add it to _get_output_channel() function to compute number of channels correctly"
+        )
+
+
 def load_config(config_path):
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
@@ -385,7 +528,6 @@ def main():
         max_epochs=config["training"]["max_epochs"],
         accelerator="gpu" if config["training"].get("gpus") else "auto",
         devices=config["training"].get("gpus") or "auto",
-        # devices=config["training"]["gpus"] if torch.cuda.is_available() else 0,
         callbacks=[RichProgressBar()],
         logger=TensorBoardLogger(
             config["logging"]["log_dir"], name=config["logging"]["experiment_name"]
@@ -393,6 +535,13 @@ def main():
     )
 
     trainer.fit(model, data_module)
+
+    derived_model = model.train_derived_architecture(
+        derived_architecture=model.derive_architecture(),
+        train_loader=data_module.train_dataloader(),
+        val_loader=data_module.val_dataloader(),
+        epochs=config["training"]["derived_epochs"],
+    )
 
 
 if __name__ == "__main__":
