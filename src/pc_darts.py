@@ -228,14 +228,17 @@ class PCDARTSLightningModule(pl.LightningModule):
             node_operations = []
             for i in range(node + 2):
                 # pick the operation with the highest weight for each edge
-                operation_weights = F.softmax(
-                    self.search_space.arch_parameters[node][i], dim=-1
+                clamped_norms = self.search_space.edge_norms[node][i].clamp(min=1e-5)
+                normalized_weights = F.softmax(
+                    self.search_space.arch_parameters[node][i]
+                    / (clamped_norms**self.search_space.edge_norm_strength),
+                    dim=-1,
                 )
-                best_operation_index = operation_weights.argmax().item()
-                best_operation = self.search_space.candidate_operations[
-                    best_operation_index
-                ]
-                node_operations.append((i, best_operation))
+                best_operation_index = normalized_weights.argmax().item()
+                best_operation_type = type(
+                    self.search_space.candidate_operations[best_operation_index]
+                )
+                node_operations.append((i, best_operation_type))
             final_architecture.append(node_operations)
         return final_architecture
 
@@ -393,37 +396,48 @@ class DerivedPCDARTSModel(pl.LightningModule):
     def _make_cell(self):
         cell = nn.ModuleList()
 
+        cell_channels = self.in_channels * (2 ** len((self.cells)))
+
         for node_ops in self.derived_architecture:
             node = nn.ModuleList()
             for i, op_type in node_ops:
                 if op_type == nn.Identity:
                     node.append(op_type())
-                elif op_type in (nn.MaxPool2d, nn.AvgPool2d):
+                elif op_type in (
+                    nn.MaxPool2d,
+                    nn.AvgPool2d,
+                ):  # TODO better generalization
                     node.append(
-                        op_type(3, stride=1, padding=1)
+                        op_type(kernel_size=3, stride=1, padding=1)
                     )  # TODO: too much hardcoding
                 else:  # assumes it's conv operations TODO: update it when more candidate ops are possible
                     conv = nn.Conv2d(
-                        in_channels=self.in_channels,
-                        out_channels=self.in_channels,
+                        in_channels=cell_channels,
+                        out_channels=cell_channels,
                         kernel_size=3,
                         padding=1,
                         bias=False,
                     )  # TODO: update it when introducing more operations
-                    bn = nn.BatchNorm2d(num_features=self.in_channels)
-                    node.append(nn.Sequential(conv, bn))
+                    bn = nn.BatchNorm2d(num_features=cell_channels)
+                    node.append(nn.Sequential(conv, bn, nn.ReLU(inplace=True)))
             cell.append(node)
 
         return cell
 
     def forward(self, x):
         x = self.stem(x)
+
         for cell in self.cells:
-            inputs = [x]
+            cell_states = [x]
             for node in cell:
-                node_input = sum(op(inputs[i]) for i, op in enumerate(node))
-                inputs.append(node_input)
-            x = inputs[-1]
+                node_inputs = []
+                for i, op in enumerate(node):
+                    if i < len(cell_states):  # only use available previous states
+                        node_inputs.append(op(cell_states[i]))
+                node_output = sum(node_inputs)
+                cell_states.append(node_output)
+            x = cell_states[-1]  # use the latest state as cell output
+
         x = self.global_pooling(x)
         x = x.view(x.size(0), -1)
         return self.classifier(x)
