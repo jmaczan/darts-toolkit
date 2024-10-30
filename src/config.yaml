@@ -23,7 +23,6 @@ training:
   arch_weight_decay: 0.001
   edge_norm_weight_decay: 0.001
   derived_epochs: 100
-  #gpus: 1
 
 logging:
   log_dir: "logs/"

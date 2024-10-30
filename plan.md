@@ -10,12 +10,8 @@
 ## Next Steps
 
 ### 1. Core PC-DARTS Algorithm Improvements
-  1.4. Add Architecture Derivation
 
-- Implement method to derive final architecture from learned parameters
-- Add functionality to train derived architecture from scratch
-
-  1.5. Implement PC-DARTS specific loss functions
+1.5. Implement PC-DARTS specific loss functions
 
 - Add auxiliary tower for additional supervision (if used in original paper)
 - Implement any PC-DARTS specific regularization terms
