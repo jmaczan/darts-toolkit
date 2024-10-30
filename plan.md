@@ -11,11 +11,7 @@
 
 ### 2. Search Space and Operations
 
-2.1. Expand Candidate Operations
-
-- Add more operations (e.g., dilated convolutions, separable convolutions)
-
-  2.2. Implement Different Cell Types
+2.2. Implement Different Cell Types
 
 - Add normal cell and reduction cell types
 - Make cell structure configurable

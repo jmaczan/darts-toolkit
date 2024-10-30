@@ -17,7 +17,7 @@ uv sync
 ## Run
 
 ```sh
-uv run src/pc_darts.py
+uv run src/lightning_pc_darts.py
 ```
 
 ## Cite

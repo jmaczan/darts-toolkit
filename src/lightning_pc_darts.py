@@ -13,11 +13,15 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 
+class ZeroOp(nn.Module):
+    def forward(self, x):
+        return torch.zeros_like(x)
+
+
 class LPCDARTSSearchSpace(nn.Module):
     def __init__(
         self,
         num_nodes,
-        num_ops,
         in_channels,
         num_partial_channel_connections,
         edge_norm_init=1.0,
@@ -25,29 +29,10 @@ class LPCDARTSSearchSpace(nn.Module):
     ):
         super(LPCDARTSSearchSpace, self).__init__()
         self.num_nodes = num_nodes
-        self.num_ops = num_ops
         self.in_channels = in_channels
         self.num_partial_channel_connections = num_partial_channel_connections
         self.edge_norm_init = edge_norm_init
         self.edge_norm_strength = edge_norm_strength
-
-        # initial architecture params (alpha)
-        # they are learnable
-        # they represent importance of each operation for each connection
-        self.arch_parameters = nn.ParameterList(
-            [
-                nn.Parameter(torch.randn(i + 2, self.num_ops))
-                for i in range(self.num_nodes)
-            ]
-        )
-
-        # edge normalization
-        self.edge_norms = nn.ParameterList(
-            [
-                nn.Parameter(torch.full((i + 2,), edge_norm_init))
-                for i in range(self.num_nodes)
-            ]
-        )
 
         # set of possible candidates for operations
         self.candidate_operations = nn.ModuleList(
@@ -71,7 +56,26 @@ class LPCDARTSSearchSpace(nn.Module):
                 DynamicSizeDilatedConv2d(
                     kernel_size=5, padding=4, dilation=2
                 ),  # 5x5 dilated conv
-                nn.Zero(),  # zero operation (no connection)
+                ZeroOp(),  # zero operation (no connection)
+            ]
+        )
+
+        # Get num_ops dynamically from candidate_operations
+        self.num_ops = len(self.candidate_operations)
+
+        # initial architecture params (alpha)
+        self.arch_parameters = nn.ParameterList(
+            [
+                nn.Parameter(torch.randn(i + 2, self.num_ops))
+                for i in range(self.num_nodes)
+            ]
+        )
+
+        # edge normalization
+        self.edge_norms = nn.ParameterList(
+            [
+                nn.Parameter(torch.full((i + 2,), edge_norm_init))
+                for i in range(self.num_nodes)
             ]
         )
 
@@ -120,7 +124,7 @@ class LPCDARTSSearchSpace(nn.Module):
                     elif isinstance(op, (nn.MaxPool2d, nn.AvgPool2d)):
                         # pooling operations
                         node_inputs.append(normalized_weights[j] * op(states[i]))
-                    elif isinstance(op, nn.Zero):
+                    elif isinstance(op, ZeroOp):
                         # zero operation - no connection
                         node_inputs.append(
                             torch.zeros_like(states[i]) * normalized_weights[j]
@@ -147,7 +151,6 @@ class LPCDARTSLightningModule(pl.LightningModule):
         self.search_space = LPCDARTSSearchSpace(
             in_channels=stem_output_channels,
             num_nodes=config["model"]["num_nodes"],
-            num_ops=config["model"]["num_ops"],
             num_partial_channel_connections=config["model"][
                 "num_partial_channel_connections"
             ],
@@ -506,21 +509,48 @@ class DerivedPCDARTSModel(pl.LightningModule):
             for i, op_type in node_ops:
                 if op_type == nn.Identity:
                     node.append(op_type())
-                elif op_type in (
-                    nn.MaxPool2d,
-                    nn.AvgPool2d,
-                ):  # TODO better generalization
-                    node.append(
-                        op_type(kernel_size=3, stride=1, padding=1)
-                    )  # TODO: too much hardcoding
-                else:  # assumes it's conv operations TODO: update it when more candidate ops are possible
+                elif op_type == ZeroOp:
+                    node.append(op_type())
+                elif op_type in (nn.MaxPool2d, nn.AvgPool2d):
+                    node.append(op_type(kernel_size=3, stride=1, padding=1))
+                elif op_type == DynamicSizeConv2d:
                     conv = nn.Conv2d(
                         in_channels=cell_channels,
                         out_channels=cell_channels,
-                        kernel_size=3,
-                        padding=1,
+                        kernel_size=op_type.kernel_size,
+                        padding=op_type.padding,
                         bias=False,
-                    )  # TODO: update it when introducing more operations
+                    )
+                    bn = nn.BatchNorm2d(num_features=cell_channels)
+                    node.append(nn.Sequential(conv, bn, nn.ReLU(inplace=True)))
+                elif op_type == DynamicSizeSeparableConv2d:
+                    depthwise = nn.Conv2d(
+                        in_channels=cell_channels,
+                        out_channels=cell_channels,
+                        kernel_size=op_type.kernel_size,
+                        padding=op_type.padding,
+                        groups=cell_channels,
+                        bias=False,
+                    )
+                    pointwise = nn.Conv2d(
+                        in_channels=cell_channels,
+                        out_channels=cell_channels,
+                        kernel_size=1,
+                        bias=False,
+                    )
+                    bn = nn.BatchNorm2d(num_features=cell_channels)
+                    node.append(
+                        nn.Sequential(depthwise, pointwise, bn, nn.ReLU(inplace=True))
+                    )
+                elif op_type == DynamicSizeDilatedConv2d:
+                    conv = nn.Conv2d(
+                        in_channels=cell_channels,
+                        out_channels=cell_channels,
+                        kernel_size=op_type.kernel_size,
+                        padding=op_type.padding,
+                        dilation=op_type.dilation,
+                        bias=False,
+                    )
                     bn = nn.BatchNorm2d(num_features=cell_channels)
                     node.append(nn.Sequential(conv, bn, nn.ReLU(inplace=True)))
             cell.append(node)

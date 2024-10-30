@@ -8,7 +8,6 @@ model:
   in_channels: 3
   num_classes: 10
   num_nodes: 4
-  num_ops: 5
   num_partial_channel_connections: 4
   edge_norm_init: 1.0
   edge_norm_strength: 1.0
