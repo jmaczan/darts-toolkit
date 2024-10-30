@@ -52,11 +52,26 @@ class LPCDARTSSearchSpace(nn.Module):
         # set of possible candidates for operations
         self.candidate_operations = nn.ModuleList(
             [
-                nn.Identity(),
-                DynamicSizeConv2d(kernel_size=3, padding=1),
-                DynamicSizeConv2d(kernel_size=1),
-                nn.MaxPool2d(kernel_size=3, stride=1, padding=1),
-                nn.AvgPool2d(kernel_size=3, stride=1, padding=1),
+                nn.Identity(),  # skip connection
+                DynamicSizeConv2d(kernel_size=3, padding=1),  # 3x3 conv
+                DynamicSizeConv2d(kernel_size=5, padding=2),  # 5x5 conv
+                DynamicSizeConv2d(kernel_size=7, padding=3),  # 7x7 conv
+                DynamicSizeConv2d(kernel_size=1),  # 1x1 conv
+                nn.MaxPool2d(kernel_size=3, stride=1, padding=1),  # 3x3 max pool
+                nn.AvgPool2d(kernel_size=3, stride=1, padding=1),  # 3x3 avg pool
+                DynamicSizeSeparableConv2d(
+                    kernel_size=3, padding=1
+                ),  # 3x3 separable conv
+                DynamicSizeSeparableConv2d(
+                    kernel_size=5, padding=2
+                ),  # 5x5 separable conv
+                DynamicSizeDilatedConv2d(
+                    kernel_size=3, padding=2, dilation=2
+                ),  # 3x3 dilated conv
+                DynamicSizeDilatedConv2d(
+                    kernel_size=5, padding=4, dilation=2
+                ),  # 5x5 dilated conv
+                nn.Zero(),  # zero operation (no connection)
             ]
         )
 
@@ -85,7 +100,15 @@ class LPCDARTSSearchSpace(nn.Module):
                 # these parametsr tell us about importance of each operation in this particular connection
                 for j, op in enumerate(self.candidate_operations):
                     # go through all candidate operations (poolings, convs etc.)
-                    if isinstance(op, (DynamicSizeConv2d, nn.Identity)):
+                    if isinstance(
+                        op,
+                        (
+                            DynamicSizeConv2d,
+                            DynamicSizeSeparableConv2d,
+                            DynamicSizeDilatedConv2d,
+                            nn.Identity,
+                        ),
+                    ):
                         # for convolutions and identity, apply operation only on randomly sampled channels
                         x_sampled = states[i][:, sampled_channels]
                         output = op(x_sampled)
@@ -94,12 +117,16 @@ class LPCDARTSSearchSpace(nn.Module):
                         expanded_output = torch.zeros_like(states[i])
                         expanded_output[:, sampled_channels] = output
                         node_inputs.append(normalized_weights[j] * expanded_output)
-                    else:  # pooling operations
+                    elif isinstance(op, (nn.MaxPool2d, nn.AvgPool2d)):
+                        # pooling operations
+                        node_inputs.append(normalized_weights[j] * op(states[i]))
+                    elif isinstance(op, nn.Zero):
+                        # zero operation - no connection
                         node_inputs.append(
-                            normalized_weights[j] * op(states[i])
-                        )  # this is the most important part - it applies all operations and weights their outputs;
-                        # this is what is called 'continuous relaxation' - applying all operations and weighting them,
-                        # instead of selecting a single opration
+                            torch.zeros_like(states[i]) * normalized_weights[j]
+                        )
+                    else:
+                        raise ValueError(f"Unknown operation type: {type(op)}")
             states.append(
                 sum(node_inputs)
             )  # after processing all inputs and operations for a node, we sum the weighted inputs
@@ -408,6 +435,43 @@ class DynamicSizeConv2d(nn.Module):
         )
 
         return F.conv2d(x, weight, padding=self.padding)
+
+
+class DynamicSizeSeparableConv2d(nn.Module):
+    def __init__(self, kernel_size, padding=0):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.padding = padding
+
+    def forward(self, x):
+        # Depthwise convolution
+        depthwise_weight = torch.randn(
+            x.size(1), 1, self.kernel_size, self.kernel_size, device=x.device
+        )
+
+        depthwise_output = F.conv2d(
+            x, depthwise_weight, padding=self.padding, groups=x.size(1)
+        )
+
+        # Pointwise convolution
+        pointwise_weight = torch.randn(x.size(1), x.size(1), 1, 1, device=x.device)
+
+        return F.conv2d(depthwise_output, pointwise_weight, padding=0)
+
+
+class DynamicSizeDilatedConv2d(nn.Module):
+    def __init__(self, kernel_size, padding=0, dilation=1):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.padding = padding
+        self.dilation = dilation
+
+    def forward(self, x):
+        weight = torch.randn(
+            x.size(1), x.size(1), self.kernel_size, self.kernel_size, device=x.device
+        )
+
+        return F.conv2d(x, weight, padding=self.padding, dilation=self.dilation)
 
 
 class DerivedPCDARTSModel(pl.LightningModule):
