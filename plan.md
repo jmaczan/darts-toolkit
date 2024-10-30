@@ -9,13 +9,6 @@
 
 ## Next Steps
 
-### 1. Core PC-DARTS Algorithm Improvements
-
-1.5. Implement PC-DARTS specific loss functions
-
-- Add auxiliary tower for additional supervision (if used in original paper)
-- Implement any PC-DARTS specific regularization terms
-
 ### 2. Search Space and Operations
 
 2.1. Expand Candidate Operations
@@ -227,3 +220,8 @@
 - Submit to relevant ML/DL package indexes and repositories
 
 ### 15. Further research of PC-DARTS
+
+1.5. Implement PC-DARTS specific loss functions
+
+- Add auxiliary tower for additional supervision (if used in original paper)
+- Implement any PC-DARTS specific regularization terms

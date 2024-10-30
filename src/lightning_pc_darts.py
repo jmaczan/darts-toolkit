@@ -13,7 +13,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 
-class PCDARTSSearchSpace(nn.Module):
+class LPCDARTSSearchSpace(nn.Module):
     def __init__(
         self,
         num_nodes,
@@ -23,7 +23,7 @@ class PCDARTSSearchSpace(nn.Module):
         edge_norm_init=1.0,
         edge_norm_strength=1.0,
     ):
-        super(PCDARTSSearchSpace, self).__init__()
+        super(LPCDARTSSearchSpace, self).__init__()
         self.num_nodes = num_nodes
         self.num_ops = num_ops
         self.in_channels = in_channels
@@ -107,9 +107,9 @@ class PCDARTSSearchSpace(nn.Module):
         return states[-1]  # we return the last state, which is the output of the cell
 
 
-class PCDARTSLightningModule(pl.LightningModule):
+class LPCDARTSLightningModule(pl.LightningModule):
     def __init__(self, config):
-        super(PCDARTSLightningModule, self).__init__()
+        super(LPCDARTSLightningModule, self).__init__()
         self.save_hyperparameters()
         self.config = config
 
@@ -117,7 +117,7 @@ class PCDARTSLightningModule(pl.LightningModule):
 
         stem_output_channels = get_output_channels(self.stem)
 
-        self.search_space = PCDARTSSearchSpace(
+        self.search_space = LPCDARTSSearchSpace(
             in_channels=stem_output_channels,
             num_nodes=config["model"]["num_nodes"],
             num_ops=config["model"]["num_ops"],
@@ -574,27 +574,53 @@ def load_config(config_path):
 
 def main():
     config = load_config(os.path.join("src", "config.yaml"))
-    model = PCDARTSLightningModule(config)
     data_module = CIFAR10DataModule(config)
 
-    trainer = pl.Trainer(
+    # Search phase
+    search_model = LPCDARTSLightningModule(config)
+    search_trainer = pl.Trainer(
         max_epochs=config["training"]["max_epochs"],
         accelerator="gpu" if config["training"].get("gpus") else "auto",
         devices=config["training"].get("gpus") or "auto",
         callbacks=[RichProgressBar()],
         logger=TensorBoardLogger(
-            config["logging"]["log_dir"], name=config["logging"]["experiment_name"]
+            config["logging"]["log_dir"],
+            name=f"{config['logging']['experiment_name']}_search",
         ),
     )
 
-    trainer.fit(model, data_module)
+    # Train the search model
+    search_trainer.fit(search_model, data_module)
 
-    derived_model = model.train_derived_architecture(
-        derived_architecture=model.derive_architecture(),
-        train_loader=data_module.train_dataloader()["train"],
-        val_loader=data_module.val_dataloader(),
-        epochs=config["training"]["derived_epochs"],
+    # Test the search model
+    search_trainer.test(search_model, datamodule=data_module)
+
+    # Derive and train the final architecture
+    derived_architecture = search_model.derive_architecture()
+    derived_model = DerivedPCDARTSModel(
+        derived_architecture=derived_architecture, config=config
     )
+
+    derived_trainer = pl.Trainer(
+        max_epochs=config["training"]["derived_epochs"],
+        accelerator="gpu" if config["training"].get("gpus") else "auto",
+        devices=config["training"].get("gpus") or "auto",
+        callbacks=[ModelCheckpoint(monitor="val_acc", mode="max"), RichProgressBar()],
+        logger=TensorBoardLogger(
+            config["logging"]["log_dir"],
+            name=f"{config['logging']['experiment_name']}_derived",
+        ),
+    )
+
+    # Train the derived model
+    derived_trainer.fit(
+        derived_model,
+        train_dataloaders=data_module.train_dataloader()["train"],
+        val_dataloaders=data_module.val_dataloader(),
+    )
+
+    # Test the derived model
+    derived_trainer.test(derived_model, datamodule=data_module)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-# pc-darts
+# lightning-pc-darts
 
-[Partially-Connected](https://arxiv.org/abs/1907.05737) [Differentiable Architecture Search](https://arxiv.org/abs/1806.09055) in PyTorch Lightning from scratch
+[Partially-Connected](https://arxiv.org/abs/1907.05737) [Differentiable Architecture Search](https://arxiv.org/abs/1806.09055) in PyTorch Lightning
 
 🚧 Under heavy development. Development roadmap: [plan.md](plan.md)
 
