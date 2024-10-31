@@ -213,6 +213,17 @@ class LPCDARTSLightningModule(pl.LightningModule):
 
         return {"loss": loss_weights}
 
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        acc = (logits.argmax(dim=1) == y).float().mean()
+
+        self.log("test_loss", loss)
+        self.log("test_acc", acc)
+
+        return {"test_loss": loss, "test_acc": acc}
+
     def validation_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
