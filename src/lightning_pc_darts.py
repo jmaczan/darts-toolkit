@@ -26,6 +26,7 @@ class LPCDARTSSearchSpace(nn.Module):
         num_partial_channel_connections,
         edge_norm_init=1.0,
         edge_norm_strength=1.0,
+        num_segments=4,
     ):
         super(LPCDARTSSearchSpace, self).__init__()
         self.num_nodes = num_nodes
@@ -33,6 +34,11 @@ class LPCDARTSSearchSpace(nn.Module):
         self.num_partial_channel_connections = num_partial_channel_connections
         self.edge_norm_init = edge_norm_init
         self.edge_norm_strength = edge_norm_strength
+        self.num_segments = num_segments
+        self.channels_per_segment = in_channels // num_segments
+        self.channels_to_sample_per_segment = (
+            num_partial_channel_connections // num_segments
+        )
 
         # set of possible candidates for operations
         self.candidate_operations = nn.ModuleList(
@@ -499,11 +505,10 @@ class DerivedPCDARTSModel(pl.LightningModule):
         self.num_cells = config["model"]["num_cells"]
 
         self.stem = get_default_stem()
+        self.cell_channels = get_output_channels(self.stem)
 
         self.cells = nn.ModuleList([self._make_cell() for _ in range(self.num_cells)])
         self.global_pooling = nn.AdaptiveAvgPool2d(output_size=1)
-
-        self.cell_channels = get_output_channels(self.stem)
 
         self.classifier = get_default_classifier(
             in_features=self.cell_channels, out_features=self.num_classes
