@@ -574,7 +574,6 @@ class DerivedPCDARTSModel(pl.LightningModule):
         self.cell_channels = get_output_channels(self.stem)
 
         self.cells = nn.ModuleList([self._make_cell() for _ in range(self.num_cells)])
-        self.global_pooling = nn.AdaptiveAvgPool2d(output_size=1)
 
         self.classifier = get_default_classifier(
             in_features=self.cell_channels, out_features=self.num_classes
@@ -606,12 +605,6 @@ class DerivedPCDARTSModel(pl.LightningModule):
                 cell_states.append(node_output)
             x = cell_states[-1]  # use the latest state as cell output
             print(f"After cell {i} shape: {x.shape}")
-
-        x = self.global_pooling(x)
-        print(f"After global pooling shape: {x.shape}")
-
-        x = x.view(x.size(0), -1)
-        print(f"After flatten shape: {x.shape}")
 
         print(f"Classifier input features: {self.classifier[-1].in_features}")
         print(f"Classifier output features: {self.classifier[-1].out_features}")
