@@ -14,6 +14,9 @@ import matplotlib.pyplot as plt
 
 
 class ZeroOp(nn.Module):
+    def to_trainable(self, in_channels):
+        return self  # Zero operation remains the same
+
     def forward(self, x):
         return torch.zeros_like(x)
 
@@ -48,8 +51,8 @@ class LPCDARTSSearchSpace(nn.Module):
                 DynamicSizeConv2d(kernel_size=5, padding=2),  # 5x5 conv
                 DynamicSizeConv2d(kernel_size=7, padding=3),  # 7x7 conv
                 DynamicSizeConv2d(kernel_size=1),  # 1x1 conv
-                nn.MaxPool2d(kernel_size=3, stride=1, padding=1),  # 3x3 max pool
-                nn.AvgPool2d(kernel_size=3, stride=1, padding=1),  # 3x3 avg pool
+                MaxPool(kernel_size=3, stride=1, padding=1),  # 3x3 max pool
+                AvgPool(kernel_size=3, stride=1, padding=1),  # 3x3 avg pool
                 DynamicSizeSeparableConv2d(
                     kernel_size=3, padding=1
                 ),  # 3x3 separable conv
@@ -448,11 +451,23 @@ class DynamicSizeConv2d(nn.Module):
         self.kernel_size = kernel_size
         self.padding = padding
 
+    def to_trainable(self, in_channels):
+        return nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=self.kernel_size,
+                padding=self.padding,
+                bias=False,
+            ),
+            nn.BatchNorm2d(num_features=in_channels),
+            nn.ReLU(inplace=True),
+        )
+
     def forward(self, x):
         weight = torch.randn(
             x.size(1), x.size(1), self.kernel_size, self.kernel_size, device=x.device
         )
-
         return F.conv2d(x, weight, padding=self.padding)
 
 
@@ -461,6 +476,26 @@ class DynamicSizeSeparableConv2d(nn.Module):
         super().__init__()
         self.kernel_size = kernel_size
         self.padding = padding
+
+    def to_trainable(self, in_channels):
+        return nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=self.kernel_size,
+                padding=self.padding,
+                groups=in_channels,
+                bias=False,
+            ),
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=1,
+                bias=False,
+            ),
+            nn.BatchNorm2d(num_features=in_channels),
+            nn.ReLU(inplace=True),
+        )
 
     def forward(self, x):
         # Depthwise convolution
@@ -485,12 +520,42 @@ class DynamicSizeDilatedConv2d(nn.Module):
         self.padding = padding
         self.dilation = dilation
 
+    def to_trainable(self, in_channels):
+        return nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=self.kernel_size,
+                padding=self.padding,
+                dilation=self.dilation,
+                bias=False,
+            ),
+            nn.BatchNorm2d(num_features=in_channels),
+            nn.ReLU(inplace=True),
+        )
+
     def forward(self, x):
         weight = torch.randn(
             x.size(1), x.size(1), self.kernel_size, self.kernel_size, device=x.device
         )
 
         return F.conv2d(x, weight, padding=self.padding, dilation=self.dilation)
+
+
+# Wrapper classes for PyTorch operations
+class MaxPool(nn.MaxPool2d):
+    def to_trainable(self, in_channels):
+        return self
+
+
+class AvgPool(nn.AvgPool2d):
+    def to_trainable(self, in_channels):
+        return self
+
+
+class Identity(nn.Identity):
+    def to_trainable(self, in_channels):
+        return self
 
 
 class DerivedPCDARTSModel(pl.LightningModule):
@@ -516,58 +581,11 @@ class DerivedPCDARTSModel(pl.LightningModule):
 
     def _make_cell(self):
         cell = nn.ModuleList()
-
         for node_ops in self.derived_architecture:
             node = nn.ModuleList()
-            for i, op_type in node_ops:
-                if op_type == nn.Identity:
-                    node.append(op_type())
-                elif op_type == ZeroOp:
-                    node.append(op_type())
-                elif op_type in (nn.MaxPool2d, nn.AvgPool2d):
-                    node.append(op_type(kernel_size=3, stride=1, padding=1))
-                elif op_type == DynamicSizeConv2d:
-                    conv = nn.Conv2d(
-                        in_channels=self.cell_channels,
-                        out_channels=self.cell_channels,
-                        kernel_size=op_type.kernel_size,
-                        padding=op_type.padding,
-                        bias=False,
-                    )
-                    bn = nn.BatchNorm2d(num_features=self.cell_channels)
-                    node.append(nn.Sequential(conv, bn, nn.ReLU(inplace=True)))
-                elif op_type == DynamicSizeSeparableConv2d:
-                    depthwise = nn.Conv2d(
-                        in_channels=self.cell_channels,
-                        out_channels=self.cell_channels,
-                        kernel_size=op_type.kernel_size,
-                        padding=op_type.padding,
-                        groups=self.cell_channels,
-                        bias=False,
-                    )
-                    pointwise = nn.Conv2d(
-                        in_channels=self.cell_channels,
-                        out_channels=self.cell_channels,
-                        kernel_size=1,
-                        bias=False,
-                    )
-                    bn = nn.BatchNorm2d(num_features=self.cell_channels)
-                    node.append(
-                        nn.Sequential(depthwise, pointwise, bn, nn.ReLU(inplace=True))
-                    )
-                elif op_type == DynamicSizeDilatedConv2d:
-                    conv = nn.Conv2d(
-                        in_channels=self.cell_channels,
-                        out_channels=self.cell_channels,
-                        kernel_size=op_type.kernel_size,
-                        padding=op_type.padding,
-                        dilation=op_type.dilation,
-                        bias=False,
-                    )
-                    bn = nn.BatchNorm2d(num_features=self.cell_channels)
-                    node.append(nn.Sequential(conv, bn, nn.ReLU(inplace=True)))
+            for i, op in node_ops:
+                node.append(op.to_trainable(self.cell_channels))
             cell.append(node)
-
         return cell
 
     def forward(self, x):
