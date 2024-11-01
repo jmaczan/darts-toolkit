@@ -562,7 +562,8 @@ class DerivedPCDARTSModel(pl.LightningModule):
     def __init__(self, derived_architecture, config):
         super().__init__()
         self.derived_architecture = derived_architecture
-        self.save_hyperparameters()
+        self.config = config
+        self.save_hyperparameters(ignore=["derived_architecture"])
         self.num_nodes = len(derived_architecture)
 
         self.in_channels = config["model"]["in_channels"]
