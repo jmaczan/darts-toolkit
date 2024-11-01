@@ -24,6 +24,8 @@ training:
   arch_weight_decay: 0.001
   edge_norm_weight_decay: 0.001
   derived_epochs: 1 # 100
+  drop_path_prob_start: 0.0
+  drop_path_prob_end: 0.3
 
 logging:
   log_dir: "logs/"

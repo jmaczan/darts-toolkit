@@ -31,6 +31,7 @@ class LPCDARTSSearchSpace(nn.Module):
         edge_norm_init=1.0,
         edge_norm_strength=1.0,
         num_segments=4,
+        drop_path_prob_start=0.0,
     ):
         super(LPCDARTSSearchSpace, self).__init__()
         self.num_nodes = num_nodes
@@ -43,6 +44,7 @@ class LPCDARTSSearchSpace(nn.Module):
         self.channels_to_sample_per_segment = (
             num_partial_channel_connections // num_segments
         )
+        self.drop_path = DropPath(drop_path_prob_start)
 
         # set of possible candidates for operations
         self.candidate_operations = nn.ModuleList(
@@ -88,6 +90,9 @@ class LPCDARTSSearchSpace(nn.Module):
                 for i in range(self.num_nodes)
             ]
         )
+
+    def update_drop_path_prob(self, drop_path_prob: float):
+        self.drop_path.drop_prob = drop_path_prob
 
     # this function is the heart of PC-DARTS, so for anyone reading this, let's break this down
     def forward(self, x):
@@ -141,14 +146,20 @@ class LPCDARTSSearchSpace(nn.Module):
                         # expand output back to original amount of channels
                         expanded_output = torch.zeros_like(states[i])
                         expanded_output[:, sampled_channels] = output
-                        node_inputs.append(normalized_weights[j] * expanded_output)
+                        node_inputs.append(
+                            self.drop_path(normalized_weights[j] * expanded_output)
+                        )
                     elif isinstance(op, (nn.MaxPool2d, nn.AvgPool2d)):
                         # pooling operations
-                        node_inputs.append(normalized_weights[j] * op(states[i]))
+                        node_inputs.append(
+                            self.drop_path(normalized_weights[j] * op(states[i]))
+                        )
                     elif isinstance(op, ZeroOp):
                         # zero operation - no connection
                         node_inputs.append(
-                            torch.zeros_like(states[i]) * normalized_weights[j]
+                            self.drop_path(
+                                normalized_weights[j] * torch.zeros_like(states[i])
+                            )
                         )
                     else:
                         raise ValueError(f"Unknown operation type: {type(op)}")
@@ -178,6 +189,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
             edge_norm_init=config["model"].get("edge_norm_init", 1.0),
             edge_norm_strength=config["model"].get("edge_norm_strength", 1.0),
             num_segments=config["model"].get("num_segments", 4),
+            drop_path_prob_start=config["training"].get("drop_path_prob_start", 0.0),
         )
 
         self.classifier = get_default_classifier(
@@ -191,12 +203,24 @@ class LPCDARTSLightningModule(pl.LightningModule):
             self.classifier.parameters()
         )
 
+        self.drop_path_scheduler = DropPathScheduler(
+            drop_path_prob_start=config["model"].get("drop_path_prob_start", 0.0),
+            drop_path_prob_end=config["model"].get("drop_path_prob_end", 0.3),
+            epochs=config["training"]["max_epochs"],
+        )
+
         self.automatic_optimization = False
 
     def forward(self, x):
         x = self.stem(x)
         x = self.search_space(x)
         return self.classifier(x)
+
+    def on_train_epoch_start(self):
+        self.search_space.update_drop_path_prob(
+            self.drop_path_scheduler(self.current_epoch)
+        )
+        self.log("drop_path_prob", self.search_space.drop_path.drop_prob)
 
     # bilevel optimization
     def training_step(self, batch, batch_idx):
@@ -569,6 +593,45 @@ class AvgPool(nn.AvgPool2d):
 class Identity(nn.Identity):
     def to_trainable(self, in_channels):
         return self
+
+
+class DropPath(nn.Module):
+    def __init__(self, drop_prob: float = 0.0):
+        super().__init__()
+        self.drop_prob: float = drop_prob
+
+    def forward(self, x):
+        if self.drop_prob == 0.0 or not self.training:
+            return x
+
+        keep_prob = 1 - self.drop_prob
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+        binary_tensor = torch.floor(random_tensor)
+        output = x.div(keep_prob) * binary_tensor
+        return output
+
+
+class DropPathScheduler:
+    def __init__(
+        self, drop_path_prob_start: float, drop_path_prob_end: float, epochs: int
+    ):
+        self.drop_path_prob_start = drop_path_prob_start
+        self.drop_path_prob_end = drop_path_prob_end
+        self.epochs = epochs
+
+    def __call__(self, epoch: int) -> float:
+        if epoch < 0 or self.epochs <= 0:
+            return self.drop_path_prob_start
+        if epoch >= self.epochs:
+            return self.drop_path_prob_end
+
+        return (
+            self.drop_path_prob_start
+            + (self.drop_path_prob_end - self.drop_path_prob_start)
+            * epoch
+            / self.epochs
+        )
 
 
 class DerivedPCDARTSModel(pl.LightningModule):
