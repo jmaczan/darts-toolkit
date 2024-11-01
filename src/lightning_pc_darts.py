@@ -38,7 +38,7 @@ class LPCDARTSSearchSpace(nn.Module):
         self.num_partial_channel_connections = num_partial_channel_connections
         self.edge_norm_init = edge_norm_init
         self.edge_norm_strength = edge_norm_strength
-        self.num_segments = num_segments
+        self.num_segments = num_segments  # K in the PC-DARTS paper
         self.channels_per_segment = in_channels // num_segments
         self.channels_to_sample_per_segment = (
             num_partial_channel_connections // num_segments
@@ -97,13 +97,24 @@ class LPCDARTSSearchSpace(nn.Module):
         ):  # iterates over each intermediate node in the cell
             node_inputs = []  # for each node, we will store inputs here
             for i in range(min(node + 2, len(states))):
-                sampled_channels = torch.randperm(self.in_channels)[
-                    : self.num_partial_channel_connections
-                ]
-                # partial channel connections - reduced number of channels, randomly chosen, in search space
-                # iterate over all possible input states for current node.
-                # +2 because each node can take input from all previous nodes plus two initial inputs
-                # which is output of the previous call and output of the previous-previous cell
+                sampled_channels = []
+                # previously, we sampled channels randomly from all channels
+                # now, we sample channels from each segment separately systematically
+                # divide channels into K segments, and sample equal number of channels from each segment
+                # then, concatenate all channels from all segments
+                for segment in range(self.num_segments):
+                    segment_start = segment * self.channels_per_segment
+                    segment_end = segment_start + self.channels_per_segment
+                    segment_indices = torch.arange(
+                        segment_start, segment_end, device=x.device
+                    )
+                    segment_samples = segment_indices[
+                        torch.randperm(len(segment_indices))[
+                            : self.channels_to_sample_per_segment
+                        ]
+                    ]
+                    sampled_channels.append(segment_samples)
+                sampled_channels = torch.cat(sampled_channels)
 
                 clamped_norms = self.edge_norms[node][i].clamp(min=1e-5)
                 normalized_weights = F.softmax(
@@ -166,6 +177,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
             ],
             edge_norm_init=config["model"].get("edge_norm_init", 1.0),
             edge_norm_strength=config["model"].get("edge_norm_strength", 1.0),
+            num_segments=config["model"].get("num_segments", 4),
         )
 
         self.classifier = get_default_classifier(
