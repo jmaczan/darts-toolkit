@@ -1,16 +1,17 @@
 import os.path
+
+import matplotlib.pyplot as plt
+import networkx as nx
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, random_split
-from torch.optim.lr_scheduler import CosineAnnealingLR
 import yaml
-import networkx as nx
-import matplotlib.pyplot as plt
+from pytorch_lightning.callbacks import ModelCheckpoint, RichProgressBar
+from pytorch_lightning.loggers import TensorBoardLogger
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader, random_split
+from torchvision import datasets, transforms
 
 
 class ZeroOp(nn.Module):
@@ -637,6 +638,15 @@ class DerivedPCDARTSModel(pl.LightningModule):
             optimizer, T_max=self.config["training"]["max_epochs"]
         )
         return [optimizer], [scheduler]
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        self.log("test_loss", loss)
+        self.log("test_acc", acc)
+        return {"test_loss": loss, "test_acc": acc}
 
 
 def get_default_stem():
