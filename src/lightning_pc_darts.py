@@ -504,16 +504,14 @@ class DerivedPCDARTSModel(pl.LightningModule):
         self.cells = nn.ModuleList([self._make_cell() for _ in range(self.num_cells)])
         self.global_pooling = nn.AdaptiveAvgPool2d(output_size=1)
 
-        stem_output_channels = get_output_channels(self.stem)
+        self.cell_channels = get_output_channels(self.stem)
 
         self.classifier = get_default_classifier(
-            in_features=stem_output_channels, out_features=self.num_classes
+            in_features=self.cell_channels, out_features=self.num_classes
         )
 
     def _make_cell(self):
         cell = nn.ModuleList()
-
-        cell_channels = self.in_channels * (2 ** len((self.cells)))
 
         for node_ops in self.derived_architecture:
             node = nn.ModuleList()
@@ -526,43 +524,43 @@ class DerivedPCDARTSModel(pl.LightningModule):
                     node.append(op_type(kernel_size=3, stride=1, padding=1))
                 elif op_type == DynamicSizeConv2d:
                     conv = nn.Conv2d(
-                        in_channels=cell_channels,
-                        out_channels=cell_channels,
+                        in_channels=self.cell_channels,
+                        out_channels=self.cell_channels,
                         kernel_size=op_type.kernel_size,
                         padding=op_type.padding,
                         bias=False,
                     )
-                    bn = nn.BatchNorm2d(num_features=cell_channels)
+                    bn = nn.BatchNorm2d(num_features=self.cell_channels)
                     node.append(nn.Sequential(conv, bn, nn.ReLU(inplace=True)))
                 elif op_type == DynamicSizeSeparableConv2d:
                     depthwise = nn.Conv2d(
-                        in_channels=cell_channels,
-                        out_channels=cell_channels,
+                        in_channels=self.cell_channels,
+                        out_channels=self.cell_channels,
                         kernel_size=op_type.kernel_size,
                         padding=op_type.padding,
-                        groups=cell_channels,
+                        groups=self.cell_channels,
                         bias=False,
                     )
                     pointwise = nn.Conv2d(
-                        in_channels=cell_channels,
-                        out_channels=cell_channels,
+                        in_channels=self.cell_channels,
+                        out_channels=self.cell_channels,
                         kernel_size=1,
                         bias=False,
                     )
-                    bn = nn.BatchNorm2d(num_features=cell_channels)
+                    bn = nn.BatchNorm2d(num_features=self.cell_channels)
                     node.append(
                         nn.Sequential(depthwise, pointwise, bn, nn.ReLU(inplace=True))
                     )
                 elif op_type == DynamicSizeDilatedConv2d:
                     conv = nn.Conv2d(
-                        in_channels=cell_channels,
-                        out_channels=cell_channels,
+                        in_channels=self.cell_channels,
+                        out_channels=self.cell_channels,
                         kernel_size=op_type.kernel_size,
                         padding=op_type.padding,
                         dilation=op_type.dilation,
                         bias=False,
                     )
-                    bn = nn.BatchNorm2d(num_features=cell_channels)
+                    bn = nn.BatchNorm2d(num_features=self.cell_channels)
                     node.append(nn.Sequential(conv, bn, nn.ReLU(inplace=True)))
             cell.append(node)
 
