@@ -290,9 +290,8 @@ class LPCDARTSLightningModule(pl.LightningModule):
     ):
         """Train the derived architecture from scratch"""
         derived_model = DerivedPCDARTSModel(
+            config=self.config,
             derived_architecture=derived_architecture,
-            num_classes=self.config["model"]["num_classes"],
-            in_channels=self.search_space.in_channels,
         )
 
         trainer = pl.Trainer(
@@ -313,7 +312,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
         G = nx.DiGraph()
         G.add_node("input")
 
-        for i, node_ops in enumerate(self.derive_architecture):
+        for i, node_ops in enumerate(self.derive_architecture()):
             node_name = f"node_{i}"
             G.add_node(node_name)
 
@@ -325,8 +324,8 @@ class LPCDARTSLightningModule(pl.LightningModule):
                         f"node_{input_idx-1}", node_name, operation=op_type.__name__
                     )
 
-        G.add_edge("output")
-        G.add_edge(f"node_{len(self.derive_architecture) - 1}", "output")
+        G.add_node("output")
+        G.add_edge(f"node_{len(self.derive_architecture()) - 1}", "output")
 
         pos = nx.spring_layout(G)
         nx.draw(
