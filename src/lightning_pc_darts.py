@@ -181,30 +181,8 @@ class LPCDARTSLightningModule(pl.LightningModule):
         self.automatic_optimization = False
 
     def forward(self, x):
-        print(f"Input shape: {x.shape}")
-
         x = self.stem(x)
-        print(f"After stem shape: {x.shape}")
-
-        for i, cell in enumerate(self.cells):
-            cell_states = [x]
-            for j, node in enumerate(cell):
-                node_inputs = []
-                for i, op in enumerate(node):
-                    if i < len(cell_states):
-                        node_inputs.append(op(cell_states[i]))
-                node_output = sum(node_inputs)
-                cell_states.append(node_output)
-            x = cell_states[-1]
-            print(f"After cell {i} shape: {x.shape}")
-
-        x = self.global_pooling(x)
-        print(f"After global pooling shape: {x.shape}")
-
-        x = x.view(x.size(0), -1)
-        print(f"After flatten shape: {x.shape}")
-
-        print(f"Classifier weight shape: {self.classifier.weight.shape}")
+        x = self.search_space(x)
         return self.classifier(x)
 
     # bilevel optimization
@@ -612,9 +590,12 @@ class DerivedPCDARTSModel(pl.LightningModule):
         return cell
 
     def forward(self, x):
-        x = self.stem(x)
+        print(f"Input shape: {x.shape}")
 
-        for cell in self.cells:
+        x = self.stem(x)
+        print(f"After stem shape: {x.shape}")
+
+        for i, cell in enumerate(self.cells):
             cell_states = [x]
             for node in cell:
                 node_inputs = []
@@ -624,9 +605,16 @@ class DerivedPCDARTSModel(pl.LightningModule):
                 node_output = sum(node_inputs)
                 cell_states.append(node_output)
             x = cell_states[-1]  # use the latest state as cell output
+            print(f"After cell {i} shape: {x.shape}")
 
         x = self.global_pooling(x)
+        print(f"After global pooling shape: {x.shape}")
+
         x = x.view(x.size(0), -1)
+        print(f"After flatten shape: {x.shape}")
+
+        print(f"Classifier input features: {self.classifier[-1].in_features}")
+        print(f"Classifier output features: {self.classifier[-1].out_features}")
         return self.classifier(x)
 
     def training_step(self, batch, batch_idx):
