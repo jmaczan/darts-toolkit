@@ -15,7 +15,7 @@ model:
   num_segments: 4
 
 training:
-  max_epochs: 50
+  max_epochs: 1 # 50
   momentum: 0.9
   learning_rate: 0.025
   arch_learning_rate: 0.001
@@ -23,7 +23,7 @@ training:
   weight_decay: 0.0003
   arch_weight_decay: 0.001
   edge_norm_weight_decay: 0.001
-  derived_epochs: 100
+  derived_epochs: 1 # 100
 
 logging:
   log_dir: "logs/"
