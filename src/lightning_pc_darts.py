@@ -287,10 +287,10 @@ class LPCDARTSLightningModule(pl.LightningModule):
                     dim=-1,
                 )
                 best_operation_index = normalized_weights.argmax().item()
-                best_operation_type = type(
-                    self.search_space.candidate_operations[best_operation_index]
-                )
-                node_operations.append((i, best_operation_type))
+                best_operation = self.search_space.candidate_operations[
+                    best_operation_index
+                ]
+                node_operations.append((i, best_operation))
             final_architecture.append(node_operations)
         return final_architecture
 
