@@ -181,8 +181,30 @@ class LPCDARTSLightningModule(pl.LightningModule):
         self.automatic_optimization = False
 
     def forward(self, x):
+        print(f"Input shape: {x.shape}")
+
         x = self.stem(x)
-        x = self.search_space(x)
+        print(f"After stem shape: {x.shape}")
+
+        for i, cell in enumerate(self.cells):
+            cell_states = [x]
+            for j, node in enumerate(cell):
+                node_inputs = []
+                for i, op in enumerate(node):
+                    if i < len(cell_states):
+                        node_inputs.append(op(cell_states[i]))
+                node_output = sum(node_inputs)
+                cell_states.append(node_output)
+            x = cell_states[-1]
+            print(f"After cell {i} shape: {x.shape}")
+
+        x = self.global_pooling(x)
+        print(f"After global pooling shape: {x.shape}")
+
+        x = x.view(x.size(0), -1)
+        print(f"After flatten shape: {x.shape}")
+
+        print(f"Classifier weight shape: {self.classifier.weight.shape}")
         return self.classifier(x)
 
     # bilevel optimization
