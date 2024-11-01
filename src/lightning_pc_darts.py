@@ -46,7 +46,7 @@ class LPCDARTSSearchSpace(nn.Module):
         # set of possible candidates for operations
         self.candidate_operations = nn.ModuleList(
             [
-                nn.Identity(),  # skip connection
+                Identity(),  # skip connection
                 DynamicSizeConv2d(kernel_size=3, padding=1),  # 3x3 conv
                 DynamicSizeConv2d(kernel_size=5, padding=2),  # 5x5 conv
                 DynamicSizeConv2d(kernel_size=7, padding=3),  # 7x7 conv
