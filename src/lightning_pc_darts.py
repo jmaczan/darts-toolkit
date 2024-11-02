@@ -188,6 +188,7 @@ class AuxiliaryHead(nn.Module):
             nn.Conv2d(128, 768, kernel_size=2, bias=False),
             nn.BatchNorm2d(768),
             nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d(1),
         )
 
         self.classifier = nn.Linear(768, num_classes)
