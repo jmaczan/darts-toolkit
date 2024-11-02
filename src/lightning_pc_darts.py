@@ -79,7 +79,7 @@ class LPCDARTSSearchSpace(nn.Module):
         # initial architecture params (alpha)
         self.arch_parameters = nn.ParameterList(
             [
-                nn.Parameter(torch.randn(i + 2, self.num_ops))
+                nn.Parameter(1e-3 * torch.randn(i + 2, self.num_ops))
                 for i in range(self.num_nodes)
             ]
         )
