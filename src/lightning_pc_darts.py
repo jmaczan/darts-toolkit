@@ -32,6 +32,7 @@ class LPCDARTSSearchSpace(nn.Module):
         edge_norm_strength=1.0,
         num_segments=4,
         drop_path_prob_start=0.0,
+        temperature_start=1.0,
     ):
         super(LPCDARTSSearchSpace, self).__init__()
         self.num_nodes = num_nodes
@@ -45,7 +46,7 @@ class LPCDARTSSearchSpace(nn.Module):
             num_partial_channel_connections // num_segments
         )
         self.drop_path = DropPath(drop_path_prob_start)
-
+        self.temperature = temperature_start
         # set of possible candidates for operations
         self.candidate_operations = nn.ModuleList(
             [
@@ -94,6 +95,9 @@ class LPCDARTSSearchSpace(nn.Module):
     def update_drop_path_prob(self, drop_path_prob: float):
         self.drop_path.drop_prob = drop_path_prob
 
+    def update_temperature(self, temperature: float):
+        self.temperature = temperature
+
     # this function is the heart of PC-DARTS, so for anyone reading this, let's break this down
     def forward(self, x):
         states = [x]  # this is the input to the cell
@@ -124,7 +128,7 @@ class LPCDARTSSearchSpace(nn.Module):
                 clamped_norms = self.edge_norms[node][i].clamp(min=1e-5)
                 normalized_weights = F.softmax(
                     self.arch_parameters[node][i]
-                    / (clamped_norms**self.edge_norm_strength),
+                    / (clamped_norms**self.edge_norm_strength * self.temperature),
                     dim=-1,
                 )  # softmax to architectural parameters for current node and input
                 # these parametsr tell us about importance of each operation in this particular connection
@@ -209,6 +213,12 @@ class LPCDARTSLightningModule(pl.LightningModule):
             epochs=config["training"]["max_epochs"],
         )
 
+        self.temperature_scheduler = TemperatureScheduler(
+            temperature_start=config["model"].get("temperature_start", 1.0),
+            temperature_end=config["model"].get("temperature_end", 0.1),
+            epochs=config["training"]["max_epochs"],
+        )
+
         self.automatic_optimization = False
 
     def forward(self, x):
@@ -220,7 +230,11 @@ class LPCDARTSLightningModule(pl.LightningModule):
         self.search_space.update_drop_path_prob(
             self.drop_path_scheduler(self.current_epoch)
         )
+        self.search_space.update_temperature(
+            self.temperature_scheduler(self.current_epoch)
+        )
         self.log("drop_path_prob", self.search_space.drop_path.drop_prob)
+        self.log("temperature", self.search_space.temperature)
 
     # bilevel optimization
     def training_step(self, batch, batch_idx):
@@ -631,6 +645,29 @@ class DropPathScheduler:
             + (self.drop_path_prob_end - self.drop_path_prob_start)
             * epoch
             / self.epochs
+        )
+
+
+class TemperatureScheduler:
+    def __init__(
+        self,
+        temperature_start: float = 1.0,
+        temperature_end: float = 0.1,
+        epochs: int = 50,
+    ):
+        self.temperature_start = temperature_start
+        self.temperature_end = temperature_end
+        self.epochs = epochs
+
+    def __call__(self, epoch: int) -> float:
+        if epoch < 0 or self.epochs <= 0:
+            return self.temperature_start
+        if epoch >= self.epochs:
+            return self.temperature_end
+
+        return (
+            self.temperature_start
+            - (self.temperature_start - self.temperature_end) * epoch / self.epochs
         )
 
 
