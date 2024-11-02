@@ -794,9 +794,15 @@ class DerivedPCDARTSModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        logits, aux_logits = self(x)
+        output = self(x)
+        if isinstance(output, tuple):
+            logits, aux_logits = output
+        else:
+            logits = output
+            aux_logits = None
+
         main_loss = F.cross_entropy(logits, y)
-        aux_loss = F.cross_entropy(aux_logits, y)
+        aux_loss = F.cross_entropy(aux_logits, y) if aux_logits is not None else 0
 
         loss = main_loss + self.auxiliary_weight * aux_loss
         self.log("train_loss", loss)
