@@ -34,7 +34,7 @@ class LPCDARTSSearchSpace(nn.Module):
         drop_path_prob_start=0.0,
         temperature_start=1.0,
     ):
-        super(LPCDARTSSearchSpace, self).__init__()
+        super().__init__()
         self.num_nodes = num_nodes
         self.in_channels = in_channels
         self.num_partial_channel_connections = num_partial_channel_connections
@@ -174,9 +174,34 @@ class LPCDARTSSearchSpace(nn.Module):
         return states[-1]  # we return the last state, which is the output of the cell
 
 
+class AuxiliaryHead(nn.Module):
+    def __init__(self, in_channels, num_classes):
+        super().__init__()
+        self.features = nn.Sequential(
+            # Feature extraction
+            nn.ReLU(inplace=True),
+            nn.AvgPool2d(kernel_size=5, stride=3, padding=0),
+            nn.Conv2d(in_channels, 128, kernel_size=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            # Classification
+            nn.Conv2d(128, 768, kernel_size=2, bias=False),
+            nn.BatchNorm2d(768),
+            nn.ReLU(inplace=True),
+        )
+
+        self.classifier = nn.Linear(768, num_classes)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.classifier(x)
+        return x
+
+
 class LPCDARTSLightningModule(pl.LightningModule):
     def __init__(self, config):
-        super(LPCDARTSLightningModule, self).__init__()
+        super().__init__()
         self.save_hyperparameters()
         self.config = config
 
@@ -219,12 +244,28 @@ class LPCDARTSLightningModule(pl.LightningModule):
             epochs=config["training"]["max_epochs"],
         )
 
+        self.auxiliary_weight = config["model"].get("auxiliary_weight", 0.4)
+        self.auxiliary_head = AuxiliaryHead(
+            in_channels=stem_output_channels,
+            num_classes=config["model"]["num_classes"],
+        )
+
         self.automatic_optimization = False
 
     def forward(self, x):
         x = self.stem(x)
+
+        aux_logits = None
+        if self.training:
+            aux_logits = self.auxiliary_head(x)
+
         x = self.search_space(x)
-        return self.classifier(x)
+        logits = self.classifier(x)
+
+        if self.training and aux_logits is not None:
+            return logits, aux_logits
+
+        return logits
 
     def on_train_epoch_start(self):
         self.search_space.update_drop_path_prob(
@@ -247,23 +288,32 @@ class LPCDARTSLightningModule(pl.LightningModule):
 
         # update architecture parameters "upper-level optimization"
         optimizer_arch.zero_grad()
-        logits_arch = self(input_search)
+        logits_arch, aux_logits_arch = self(input_search)
         loss_arch = F.cross_entropy(logits_arch, target_search)
+        if aux_logits_arch is not None:
+            aux_loss_arch = F.cross_entropy(aux_logits_arch, target_search)
+            loss_arch += self.auxiliary_weight * aux_loss_arch
         self.manual_backward(loss_arch)
         optimizer_arch.step()
 
         # update edge normalization parameters; it helps to stabilize the search process, by balacing the importance of different edges;
         # sounds smart, but I'm unsure how and why it works, yet
         optimizer_edge_norm.zero_grad()
-        logits_edge_norm = self(input_search)
+        logits_edge_norm, aux_logits_edge_norm = self(input_search)
         loss_edge_norm = F.cross_entropy(logits_edge_norm, target_search)
+        if aux_logits_edge_norm is not None:
+            aux_loss_edge_norm = F.cross_entropy(aux_logits_edge_norm, target_search)
+            loss_edge_norm += self.auxiliary_weight * aux_loss_edge_norm
         self.manual_backward(loss_edge_norm)
         optimizer_edge_norm.step()
 
         # update network weights "lower-level optimization"
         optimizer_weights.zero_grad()
-        logits_weights = self(input_train)
+        logits_weights, aux_logits_weights = self(input_train)
         loss_weights = F.cross_entropy(logits_weights, target_train)
+        if aux_logits_weights is not None:
+            aux_loss_weights = F.cross_entropy(aux_logits_weights, target_train)
+            loss_weights += self.auxiliary_weight * aux_loss_weights
         self.manual_backward(loss_weights)
         optimizer_weights.step()
 
@@ -692,6 +742,17 @@ class DerivedPCDARTSModel(pl.LightningModule):
             in_features=self.cell_channels, out_features=self.num_classes
         )
 
+        # Auxiliary classifier
+        self.auxiliary_weight = config["model"].get("auxiliary_weight", 0.4)
+
+        self.auxiliary_head_position = (
+            self.num_cells // 3 * 2
+        )  # put it at 2/3 of the network
+        self.auxiliary_head = AuxiliaryHead(
+            in_channels=self.cell_channels,
+            num_classes=self.num_classes,
+        )
+
     def _make_cell(self):
         cell = nn.ModuleList()
         for node_ops in self.derived_architecture:
@@ -719,15 +780,27 @@ class DerivedPCDARTSModel(pl.LightningModule):
             x = cell_states[-1]  # use the latest state as cell output
             print(f"After cell {i} shape: {x.shape}")
 
+            if self.training and i == self.auxiliary_head_position:
+                aux_logits = self.auxiliary_head(x)
+
         print(f"Classifier input features: {self.classifier[-1].in_features}")
         print(f"Classifier output features: {self.classifier[-1].out_features}")
-        return self.classifier(x)
+        logits = self.classifier(x)
+
+        if self.training and aux_logits is not None:
+            return logits, aux_logits
+        return logits
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        logits = self(x)
-        loss = F.cross_entropy(logits, y)
+        logits, aux_logits = self(x)
+        main_loss = F.cross_entropy(logits, y)
+        aux_loss = F.cross_entropy(aux_logits, y)
+
+        loss = main_loss + self.auxiliary_weight * aux_loss
         self.log("train_loss", loss)
+        self.log("train_main_loss", main_loss)
+        self.log("train_aux_loss", aux_loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
