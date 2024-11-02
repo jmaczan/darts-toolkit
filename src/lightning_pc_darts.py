@@ -179,15 +179,15 @@ class AuxiliaryHead(nn.Module):
         super().__init__()
         self.features = nn.Sequential(
             # Feature extraction
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.AvgPool2d(kernel_size=5, stride=3, padding=0),
             nn.Conv2d(in_channels, 128, kernel_size=1, bias=False),
             nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             # Classification
             nn.Conv2d(128, 768, kernel_size=2, bias=False),
             nn.BatchNorm2d(768),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.AdaptiveAvgPool2d(1),
         )
 
