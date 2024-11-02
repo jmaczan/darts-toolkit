@@ -769,6 +769,7 @@ class DerivedPCDARTSModel(pl.LightningModule):
         x = self.stem(x)
         print(f"After stem shape: {x.shape}")
 
+        aux_logits = None
         for i, cell in enumerate(self.cells):
             cell_states = [x]
             for node in cell:
@@ -780,7 +781,6 @@ class DerivedPCDARTSModel(pl.LightningModule):
                 cell_states.append(node_output)
             x = cell_states[-1]  # use the latest state as cell output
             print(f"After cell {i} shape: {x.shape}")
-            aux_logits = None
             if self.training and i == self.auxiliary_head_position:
                 aux_logits = self.auxiliary_head(x)
 
