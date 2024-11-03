@@ -9,7 +9,9 @@ import torch.nn.functional as F
 import yaml
 from pytorch_lightning.callbacks import ModelCheckpoint, RichProgressBar
 from pytorch_lightning.loggers import TensorBoardLogger
+from torch.optim.adam import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.sgd import SGD
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
 
@@ -280,7 +282,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
 
     # bilevel optimization
     def training_step(self, batch, batch_idx):
-        optimizer_weights, optimizer_arch, optimizer_edge_norm = self.optimizers()
+        optimizer_weights, optimizer_arch, optimizer_edge_norm = self.optimizers()  # type: ignore
 
         input_train, target_train = batch["train"]  # for updating network weights
         input_search, target_search = batch[
@@ -345,7 +347,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
 
     def configure_optimizers(self):
         # optimizer for model's weights
-        optimizer_weights = torch.optim.SGD(
+        optimizer_weights = SGD(
             params=self.weight_params,
             lr=self.config["training"]["learning_rate"],
             momentum=self.config["training"]["momentum"],
@@ -353,7 +355,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
         )
 
         # optimizer for architecture parameters
-        optimizer_arch = torch.optim.Adam(
+        optimizer_arch = Adam(
             params=self.arch_params,
             lr=self.config["training"]["arch_learning_rate"],
             betas=(0.5, 0.999),
@@ -361,7 +363,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
         )
 
         # optimizer for edge normalization parameters
-        optimizer_edge_norm = torch.optim.Adam(
+        optimizer_edge_norm = Adam(
             params=self.edge_norm_params,
             lr=self.config["training"]["edge_norm_learning_rate"],
             betas=(0.5, 0.999),
@@ -388,7 +390,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
                     / (clamped_norms**self.search_space.edge_norm_strength),
                     dim=-1,
                 )
-                best_operation_index = normalized_weights.argmax().item()
+                best_operation_index = int(normalized_weights.argmax().item())
                 best_operation = self.search_space.candidate_operations[
                     best_operation_index
                 ]
@@ -754,7 +756,7 @@ class DerivedPCDARTSModel(pl.LightningModule):
             num_classes=self.num_classes,
         )
 
-    def _make_cell(self):
+    def _make_cell(self) -> nn.ModuleList:
         cell = nn.ModuleList()
         for node_ops in self.derived_architecture:
             node = nn.ModuleList()
@@ -772,7 +774,7 @@ class DerivedPCDARTSModel(pl.LightningModule):
         aux_logits = None
         for i, cell in enumerate(self.cells):
             cell_states = [x]
-            for node in cell:
+            for node in cell:  # type: ignore
                 node_inputs = []
                 for i, op in enumerate(node):
                     if i < len(cell_states):  # only use available previous states
@@ -826,7 +828,7 @@ class DerivedPCDARTSModel(pl.LightningModule):
         return {"val_loss": loss, "val_acc": acc}
 
     def configure_optimizers(self):
-        optimizer = torch.optim.SGD(
+        optimizer = SGD(
             params=self.parameters(),
             lr=self.config["training"]["learning_rate"],
             momentum=self.config["training"]["momentum"],
