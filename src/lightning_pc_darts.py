@@ -795,19 +795,25 @@ class DerivedPCDARTSModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         output = self(x)
+
+        # Handle both cases: with and without auxiliary logits
         if isinstance(output, tuple):
             logits, aux_logits = output
+            main_loss = F.cross_entropy(logits, y)
+            aux_loss = F.cross_entropy(aux_logits, y)
+            loss = main_loss + self.auxiliary_weight * aux_loss
+
+            self.log("train_loss", loss)
+            self.log("train_main_loss", main_loss)
+            self.log("train_aux_loss", aux_loss)
         else:
             logits = output
-            aux_logits = None
+            loss = F.cross_entropy(logits, y)
+            self.log("train_loss", loss)
 
-        main_loss = F.cross_entropy(logits, y)
-        aux_loss = F.cross_entropy(aux_logits, y) if aux_logits is not None else 0
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        self.log("train_acc", acc)
 
-        loss = main_loss + self.auxiliary_weight * aux_loss
-        self.log("train_loss", loss)
-        self.log("train_main_loss", main_loss)
-        self.log("train_aux_loss", aux_loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
