@@ -17,7 +17,7 @@ Differentiable Architecture Search Toolkit in PyTorch Lightning
 ```py
 from darts_toolkit.models import LPCDARTSLightningModule
 from darts_toolkit.data import CIFAR10DataModule
-from darts_toolkit.uitlls.yaml import load_config
+from darts_toolkit.utils.yaml import load_config
 import yaml
 
 # Load configuration
