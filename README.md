@@ -12,9 +12,9 @@ Differentiable Architecture Search Toolkit in PyTorch Lightning
 
 ## Examples
 
-#### Use PC-DARTS to find a network architecture and train it on CIFAR-10 dataset
+#### Find a network architecture for image recognition
 
-```sh
+```py
 from darts_toolkit.models import LPCDARTSLightningModule
 from darts_toolkit.data import CIFAR10DataModule
 from darts_toolkit.uitlls.yaml import load_config
@@ -47,7 +47,11 @@ search_trainer.fit(search_model, data_module)
 
 # Test the search model
 search_trainer.test(search_model, datamodule=data_module)
+```
 
+#### Train a derived architecture
+
+```py
 # Derive and train the final architecture
 derived_architecture = search_model.derive_architecture()
 derived_model = DerivedPCDARTSModel(
@@ -78,7 +82,30 @@ derived_trainer.test(derived_model, datamodule=data_module)
 
 ## Install
 
+Using pip:
+
+```sh
+pip install git+https://github.com/jmaczan/darts-toolkit.git
+```
+
+Using uv:
+
+```sh
+uv pip install git+https://github.com/jmaczan/darts-toolkit.git
+```
+
 ## Install (for development)
+
+```sh
+git clone https://github.com/jmaczan/darts-toolkit.git
+cd darts-toolkit
+
+# Install using uv (recommended)
+uv pip install -e .
+
+# Or install using pip
+pip install -e .
+```
 
 ## Prerequisities
 
