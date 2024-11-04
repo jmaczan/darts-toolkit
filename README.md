@@ -109,9 +109,9 @@ pip install -e .
 
 ## Prerequisities
 
-This project uses [uv](https://docs.astral.sh/uv/) for package management
+This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) for package management
 
-Also, it uses [Ruff](https://docs.astral.sh/ruff/) for formatting if you run the project in VS Code. You can install Ruff plugin by Astral Software from extensions marketplace and you're good to go
+Also, it uses [Ruff](https://docs.astral.sh/ruff/installation/) for formatting if you run the project in VS Code. You can install Ruff plugin by Astral Software from extensions marketplace and you're good to go
 
 ```sh
 uv sync
@@ -120,7 +120,7 @@ uv sync
 ## Run
 
 ```sh
-uv run src/lightning_pc_darts.py
+uv run python -m src.models.lightning_pc_darts
 ```
 
 ## Cite
