@@ -207,6 +207,35 @@ wheels = [
 ]
 
 [[package]]
+name = "darts-toolkit"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "lightning" },
+    { name = "matplotlib" },
+    { name = "networkx" },
+    { name = "pyright" },
+    { name = "rich" },
+    { name = "tensorboard" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "types-pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "lightning", specifier = ">=2.4.0" },
+    { name = "matplotlib", specifier = ">=3.9.2" },
+    { name = "networkx", specifier = ">=3.4.1" },
+    { name = "pyright", specifier = ">=1.1.387" },
+    { name = "rich", specifier = ">=13.9.2" },
+    { name = "tensorboard", specifier = ">=2.18.0" },
+    { name = "torch", specifier = ">=2.4.1" },
+    { name = "torchvision", specifier = ">=0.19.1" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20240917" },
+]
+
+[[package]]
 name = "filelock"
 version = "3.16.1"
 source = { registry = "https://pypi.org/simple" }
@@ -483,35 +512,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/56/d0/78ea244ac044cd4df15aa8294a50ff3561fb177e7e5ba788aaa542046cae/lightning-2.4.0.tar.gz", hash = "sha256:9156604cc56e4b2b603f34fa7f0fe5107375c8e6d85e74544b319a15faa9ed0e", size = 620632 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a3/2c/85eaf42c983b0cd81bcda5876da2c8e2a9fd347908666ea9855724369171/lightning-2.4.0-py3-none-any.whl", hash = "sha256:560163af9711cf59055c448232c473150a299089efce0d2be3cc3288082d8768", size = 810971 },
-]
-
-[[package]]
-name = "lightning-pc-darts"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "lightning" },
-    { name = "matplotlib" },
-    { name = "networkx" },
-    { name = "pyright" },
-    { name = "rich" },
-    { name = "tensorboard" },
-    { name = "torch" },
-    { name = "torchvision" },
-    { name = "types-pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "lightning", specifier = ">=2.4.0" },
-    { name = "matplotlib", specifier = ">=3.9.2" },
-    { name = "networkx", specifier = ">=3.4.1" },
-    { name = "pyright", specifier = ">=1.1.387" },
-    { name = "rich", specifier = ">=13.9.2" },
-    { name = "tensorboard", specifier = ">=2.18.0" },
-    { name = "torch", specifier = ">=2.4.1" },
-    { name = "torchvision", specifier = ">=0.19.1" },
-    { name = "types-pyyaml", specifier = ">=6.0.12.20240917" },
 ]
 
 [[package]]

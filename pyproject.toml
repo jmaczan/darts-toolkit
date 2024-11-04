@@ -1,7 +1,8 @@
 [project]
-name = "lightning-pc-darts"
+name = "darts-toolkit"
 version = "0.1.0"
-description = "Add your description here"
+authors = [{ name = "Jędrzej Maczan", email = "jedrzej@maczan.pl" }]
+description = "Differentiable Architecture Search Toolkit in PyTorch Lightning"
 readme = "README.md"
 requires-python = ">=3.10.12"
 dependencies = [

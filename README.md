@@ -1,14 +1,90 @@
-# lightning-pc-darts
+# `darts-toolkit`
 
-[Partially-Connected](https://arxiv.org/abs/1907.05737) [Differentiable Architecture Search](https://arxiv.org/abs/1806.09055) in PyTorch Lightning
+Differentiable Architecture Search Toolkit in PyTorch Lightning
 
-🚧 Under heavy development. Development roadmap: [plan.md](plan.md)
+> Built to boost your research and provide world-class engineering practices
+
+- Research your own DARTS algorithm using pre-built components
+- Use existing DARTS architectures, like [Partially-Connected](https://arxiv.org/abs/1907.05737) [Differentiable Architecture Search](https://arxiv.org/abs/1806.09055)
+- Configure a model, dataset and training hyperparameters with `yaml` files
+- Scale to multiple GPUs with no effort
+- Visualize your neural network architecture
+
+## Examples
+
+#### Use PC-DARTS to find a network architecture and train it on CIFAR-10 dataset
+
+```sh
+from darts_toolkit.models import LPCDARTSLightningModule
+from darts_toolkit.data import CIFAR10DataModule
+from darts_toolkit.uitlls.yaml import load_config
+import yaml
+
+# Load configuration
+config = load_config(os.path.join("src", "config.yaml"))
+
+# Create data module
+data_module = CIFAR10DataModule(config)
+
+# Create model
+model = LPCDARTSLightningModule(config)
+
+# Search phase
+search_model = LPCDARTSLightningModule(config)
+search_trainer = pl.Trainer(
+    max_epochs=config["training"]["max_epochs"],
+    accelerator="gpu" if config["training"].get("gpus") else "auto",
+    devices=config["training"].get("gpus") or "auto",
+    callbacks=[RichProgressBar()],
+    logger=TensorBoardLogger(
+        config["logging"]["log_dir"],
+        name=f"{config['logging']['experiment_name']}_search",
+    ),
+)
+
+# Train the search model
+search_trainer.fit(search_model, data_module)
+
+# Test the search model
+search_trainer.test(search_model, datamodule=data_module)
+
+# Derive and train the final architecture
+derived_architecture = search_model.derive_architecture()
+derived_model = DerivedPCDARTSModel(
+    derived_architecture=derived_architecture, config=config
+)
+
+derived_trainer = pl.Trainer(
+    max_epochs=config["training"]["derived_epochs"],
+    accelerator="gpu" if config["training"].get("gpus") else "auto",
+    devices=config["training"].get("gpus") or "auto",
+    callbacks=[ModelCheckpoint(monitor="val_acc", mode="max"), RichProgressBar()],
+    logger=TensorBoardLogger(
+        config["logging"]["log_dir"],
+        name=f"{config['logging']['experiment_name']}_derived",
+    ),
+)
+
+# Train the derived model
+derived_trainer.fit(
+    derived_model,
+    train_dataloaders=data_module.train_dataloader()["train"],
+    val_dataloaders=data_module.val_dataloader(),
+)
+
+# Test the derived model
+derived_trainer.test(derived_model, datamodule=data_module)
+```
 
 ## Install
 
+## Install (for development)
+
+## Prerequisities
+
 This project uses [uv](https://docs.astral.sh/uv/) for package management
 
-Also, it uses Ruff for formatting if you run the project in VS Code. You can install Ruff plugin by Astral Software from extensions marketplace and you're good to go
+Also, it uses [Ruff](https://docs.astral.sh/ruff/) for formatting if you run the project in VS Code. You can install Ruff plugin by Astral Software from extensions marketplace and you're good to go
 
 ```sh
 uv sync
@@ -27,8 +103,8 @@ If you use this software in your research, please use the following citation:
 ```bibtex
 @software{Maczan_PCDARTS_2024,
 author = {Maczan, Jędrzej Paweł},
-title = {Partially-Connected Differentiable Architecture Search in PyTorch Lightning},
-url = {https://github.com/jmaczan/pc-darts},
+title = {Differentiable Architecture Search Toolkit in PyTorch Lightning},
+url = {https://github.com/jmaczan/darts-toolkit},
 year = {2024},
 publisher = {GitHub}
 }
@@ -40,4 +116,4 @@ GNU GPLv3
 
 ## Author
 
-Jędrzej Maczan 2024
+Jędrzej Maczan, 2024
