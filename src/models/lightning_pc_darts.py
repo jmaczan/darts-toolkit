@@ -1,27 +1,32 @@
 import os.path
 
-import matplotlib.pyplot as plt
-import networkx as nx
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import yaml
 from pytorch_lightning.callbacks import ModelCheckpoint, RichProgressBar
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.optim.adam import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.optim.sgd import SGD
-from torch.utils.data import DataLoader, random_split
-from torchvision import datasets, transforms
 
-
-class ZeroOp(nn.Module):
-    def to_trainable(self, in_channels):
-        return self  # Zero operation remains the same
-
-    def forward(self, x):
-        return torch.zeros_like(x)
+from components.auxiliary_classifier import AuxiliaryHead
+from core.classifier import get_default_classifier
+from core.operations import (
+    AvgPool,
+    DynamicSizeConv2d,
+    DynamicSizeDilatedConv2d,
+    DynamicSizeSeparableConv2d,
+    Identity,
+    MaxPool,
+    ZeroOp,
+)
+from core.regularization import DropPath
+from core.schedulers import DropPathScheduler, TemperatureScheduler
+from core.stem import get_default_stem
+from data.cifar_10 import CIFAR10DataModule
+from utils.tensor import get_output_channels
+from utils.yaml import load_config
 
 
 class LPCDARTSSearchSpace(nn.Module):
@@ -174,32 +179,6 @@ class LPCDARTSSearchSpace(nn.Module):
             )  # after processing all inputs and operations for a node, we sum the weighted inputs
             # the sum is output of the current node and we append it to states list
         return states[-1]  # we return the last state, which is the output of the cell
-
-
-class AuxiliaryHead(nn.Module):
-    def __init__(self, in_channels, num_classes):
-        super().__init__()
-        self.features = nn.Sequential(
-            # Feature extraction
-            nn.ReLU(),
-            nn.AvgPool2d(kernel_size=5, stride=3, padding=0),
-            nn.Conv2d(in_channels, 128, kernel_size=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            # Classification
-            nn.Conv2d(128, 768, kernel_size=2, bias=False),
-            nn.BatchNorm2d(768),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(1),
-        )
-
-        self.classifier = nn.Linear(768, num_classes)
-
-    def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.classifier(x)
-        return x
 
 
 class LPCDARTSLightningModule(pl.LightningModule):
@@ -421,308 +400,6 @@ class LPCDARTSLightningModule(pl.LightningModule):
 
         return derived_model
 
-    def visualize_architecture(self):
-        G = nx.DiGraph()
-        G.add_node("input")
-
-        for i, node_ops in enumerate(self.derive_architecture()):
-            node_name = f"node_{i}"
-            G.add_node(node_name)
-
-            for j, (input_idx, op_type) in enumerate(node_ops):
-                if input_idx == 0:
-                    G.add_edge("input", node_name, operation=op_type.__name__)
-                else:
-                    G.add_edge(
-                        f"node_{input_idx-1}", node_name, operation=op_type.__name__
-                    )
-
-        G.add_node("output")
-        G.add_edge(f"node_{len(self.derive_architecture()) - 1}", "output")
-
-        pos = nx.spring_layout(G)
-        nx.draw(
-            G,
-            pos,
-            with_labels=True,
-            node_color="lightblue",
-            node_size=1500,
-            font_size=10,
-            arrows=True,
-        )
-        edge_labels = nx.get_edge_attributes(G, "operation")
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
-
-        plt.title("Derived architecture")
-        plt.axis("off")
-        plt.tight_layout()
-        plt.show()
-
-
-class CIFAR10DataModule(pl.LightningDataModule):
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-        self.data_dir = config["data"]["data_dir"]
-        self.batch_size = config["data"]["batch_size"]
-        self.num_workers = config["data"]["num_workers"]
-
-        self.transform = transforms.Compose(
-            [
-                transforms.RandomCrop(size=32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
-                ),  # CIFAR10 - see https://github.com/kuangliu/pytorch-cifar/issues/8
-            ]
-        )
-
-        # transforms without data augmentation
-        self.test_transform = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
-                ),
-            ]
-        )
-
-    def prepare_data(self):
-        datasets.CIFAR10(root=self.data_dir, train=True, download=True)
-        datasets.CIFAR10(root=self.data_dir, train=False, download=True)
-
-    def setup(self, stage=None):
-        if stage == "fit" or stage is None:
-            cifar_full = datasets.CIFAR10(
-                root=self.data_dir, train=True, transform=self.transform
-            )
-            train_size = int(0.8 * len(cifar_full))
-            val_size = len(cifar_full) - train_size
-
-            self.cifar_train, self.cifar_val = random_split(
-                cifar_full, [train_size, val_size]
-            )
-
-            search_size = int(0.5 * len(self.cifar_train))
-            self.cifar_train, self.cifar_search = random_split(
-                self.cifar_train, [len(self.cifar_train) - search_size, search_size]
-            )
-
-        if stage == "test" or stage is None:
-            self.cifar_test = datasets.CIFAR10(
-                root=self.data_dir, train=False, transform=self.test_transform
-            )
-
-    def train_dataloader(self):
-        return {
-            "train": DataLoader(
-                self.cifar_train,
-                batch_size=self.batch_size,
-                shuffle=True,
-                num_workers=self.num_workers,
-                persistent_workers=True,
-            ),
-            "search": DataLoader(
-                self.cifar_search,
-                batch_size=self.batch_size,
-                shuffle=True,
-                num_workers=self.num_workers,
-                persistent_workers=True,
-            ),
-        }
-
-    def val_dataloader(self):
-        return DataLoader(
-            self.cifar_val,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            persistent_workers=True,
-        )
-
-    def test_dataloader(self):
-        return DataLoader(
-            self.cifar_test,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            persistent_workers=True,
-        )
-
-
-class DynamicSizeConv2d(nn.Module):
-    def __init__(self, kernel_size, padding=0):
-        super().__init__()
-        self.kernel_size = kernel_size
-        self.padding = padding
-
-    def to_trainable(self, in_channels):
-        return nn.Sequential(
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=in_channels,
-                kernel_size=self.kernel_size,
-                padding=self.padding,
-                bias=False,
-            ),
-            nn.BatchNorm2d(num_features=in_channels),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        weight = torch.randn(
-            x.size(1), x.size(1), self.kernel_size, self.kernel_size, device=x.device
-        )
-        return F.conv2d(x, weight, padding=self.padding)
-
-
-class DynamicSizeSeparableConv2d(nn.Module):
-    def __init__(self, kernel_size, padding=0):
-        super().__init__()
-        self.kernel_size = kernel_size
-        self.padding = padding
-
-    def to_trainable(self, in_channels):
-        return nn.Sequential(
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=in_channels,
-                kernel_size=self.kernel_size,
-                padding=self.padding,
-                groups=in_channels,
-                bias=False,
-            ),
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=in_channels,
-                kernel_size=1,
-                bias=False,
-            ),
-            nn.BatchNorm2d(num_features=in_channels),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        # Depthwise convolution
-        depthwise_weight = torch.randn(
-            x.size(1), 1, self.kernel_size, self.kernel_size, device=x.device
-        )
-
-        depthwise_output = F.conv2d(
-            x, depthwise_weight, padding=self.padding, groups=x.size(1)
-        )
-
-        # Pointwise convolution
-        pointwise_weight = torch.randn(x.size(1), x.size(1), 1, 1, device=x.device)
-
-        return F.conv2d(depthwise_output, pointwise_weight, padding=0)
-
-
-class DynamicSizeDilatedConv2d(nn.Module):
-    def __init__(self, kernel_size, padding=0, dilation=1):
-        super().__init__()
-        self.kernel_size = kernel_size
-        self.padding = padding
-        self.dilation = dilation
-
-    def to_trainable(self, in_channels):
-        return nn.Sequential(
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=in_channels,
-                kernel_size=self.kernel_size,
-                padding=self.padding,
-                dilation=self.dilation,
-                bias=False,
-            ),
-            nn.BatchNorm2d(num_features=in_channels),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        weight = torch.randn(
-            x.size(1), x.size(1), self.kernel_size, self.kernel_size, device=x.device
-        )
-
-        return F.conv2d(x, weight, padding=self.padding, dilation=self.dilation)
-
-
-# Wrapper classes for PyTorch operations
-class MaxPool(nn.MaxPool2d):
-    def to_trainable(self, in_channels):
-        return self
-
-
-class AvgPool(nn.AvgPool2d):
-    def to_trainable(self, in_channels):
-        return self
-
-
-class Identity(nn.Identity):
-    def to_trainable(self, in_channels):
-        return self
-
-
-class DropPath(nn.Module):
-    def __init__(self, drop_prob: float = 0.0):
-        super().__init__()
-        self.drop_prob: float = drop_prob
-
-    def forward(self, x):
-        if self.drop_prob == 0.0 or not self.training:
-            return x
-
-        keep_prob = 1 - self.drop_prob
-        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
-        random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
-        binary_tensor = torch.floor(random_tensor)
-        output = x.div(keep_prob) * binary_tensor
-        return output
-
-
-class DropPathScheduler:
-    def __init__(
-        self, drop_path_prob_start: float, drop_path_prob_end: float, epochs: int
-    ):
-        self.drop_path_prob_start = drop_path_prob_start
-        self.drop_path_prob_end = drop_path_prob_end
-        self.epochs = epochs
-
-    def __call__(self, epoch: int) -> float:
-        if epoch < 0 or self.epochs <= 0:
-            return self.drop_path_prob_start
-        if epoch >= self.epochs:
-            return self.drop_path_prob_end
-
-        return (
-            self.drop_path_prob_start
-            + (self.drop_path_prob_end - self.drop_path_prob_start)
-            * epoch
-            / self.epochs
-        )
-
-
-class TemperatureScheduler:
-    def __init__(
-        self,
-        temperature_start: float = 1.0,
-        temperature_end: float = 0.1,
-        epochs: int = 50,
-    ):
-        self.temperature_start = temperature_start
-        self.temperature_end = temperature_end
-        self.epochs = epochs
-
-    def __call__(self, epoch: int) -> float:
-        if epoch < 0 or self.epochs <= 0:
-            return self.temperature_start
-        if epoch >= self.epochs:
-            return self.temperature_end
-
-        return (
-            self.temperature_start
-            - (self.temperature_start - self.temperature_end) * epoch / self.epochs
-        )
-
 
 class DerivedPCDARTSModel(pl.LightningModule):
     def __init__(self, derived_architecture, config):
@@ -847,68 +524,6 @@ class DerivedPCDARTSModel(pl.LightningModule):
         self.log("test_loss", loss)
         self.log("test_acc", acc)
         return {"test_loss": loss, "test_acc": acc}
-
-
-def get_default_stem():
-    return nn.Sequential(
-        nn.Conv2d(
-            in_channels=3,
-            out_channels=16,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            bias=False,
-        ),
-        nn.BatchNorm2d(num_features=16),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(
-            in_channels=16,
-            out_channels=32,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            bias=False,
-        ),
-        nn.BatchNorm2d(num_features=32),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False),
-        nn.BatchNorm2d(64),
-        nn.ReLU(inplace=True),
-    )
-
-
-def get_default_classifier(in_features, out_features):
-    return nn.Sequential(
-        nn.AdaptiveAvgPool2d(output_size=1),
-        nn.Flatten(),
-        nn.Linear(
-            in_features=in_features,
-            out_features=out_features,
-        ),
-    )
-
-
-def get_output_channels(module):
-    if hasattr(module, "num_features"):
-        return module.num_features
-    elif hasattr(module, "out_channels"):
-        return module.out_channels
-    elif isinstance(module, nn.Sequential):
-        for layer in reversed(module):
-            if hasattr(layer, "num_features"):
-                return layer.num_features
-            if hasattr(layer, "out_channels"):
-                return layer.out_channels
-    else:
-        raise ValueError(
-            f"Unsupported module type: {type(module)}. Perhaps you want to add it to _get_output_channel() function to compute number of channels correctly"
-        )
-
-
-def load_config(config_path):
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    return config
 
 
 def main():
