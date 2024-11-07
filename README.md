@@ -2,11 +2,14 @@
 
 Differentiable Architecture Search Toolkit in PyTorch Lightning
 
-> Built to boost your research and provide world-class engineering practices
+> [!TIP]
+> Boost your research and use solid engineering practices out-of-the-box
 
-- Research your own DARTS algorithm using pre-built components
+Use this toolkit to:
+
+- Research your own DARTS algorithm with pre-built components and create your own components
 - Use existing DARTS architectures, like [Partially-Connected](https://arxiv.org/abs/1907.05737) [Differentiable Architecture Search](https://arxiv.org/abs/1806.09055)
-- Configure a model, dataset and training hyperparameters with `yaml` files
+- Configure hyperparameters with `yaml` files
 - Scale to multiple GPUs with no effort
 - Visualize your neural network architecture
 
