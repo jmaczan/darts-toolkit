@@ -10,9 +10,7 @@ from torch.optim.adam import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.optim.sgd import SGD
 
-from components.auxiliary_classifier import AuxiliaryHead
-from core.classifier import get_default_classifier
-from core.operations import (
+from base.operations import (
     AvgPool,
     DynamicSizeConv2d,
     DynamicSizeDilatedConv2d,
@@ -21,10 +19,12 @@ from core.operations import (
     MaxPool,
     ZeroOp,
 )
-from core.regularization import DropPath
-from core.schedulers import DropPathScheduler, TemperatureScheduler
-from core.stem import get_default_stem
+from components.auxiliary_classifier import AuxiliaryHead
+from components.regularization import DropPath
+from components.schedulers import DropPathScheduler, TemperatureScheduler
 from data.cifar_10 import CIFAR10DataModule
+from default.classifier import get_default_classifier
+from default.stem import get_default_stem
 from utils.tensor import get_output_channels
 from utils.yaml import load_config
 
