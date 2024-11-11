@@ -19,10 +19,10 @@ from base.operations import (
     MaxPool,
     ZeroOp,
 )
-from components.auxiliary_classifier import AuxiliaryHead
-from components.regularization import DropPath
-from components.schedulers import DropPathScheduler, TemperatureScheduler
-from data.cifar_10 import CIFAR10DataModule
+from component.auxiliary_classifier import AuxiliaryHead
+from component.regularization import DropPath
+from component.schedulers import DropPathScheduler, TemperatureScheduler
+from datamodule.cifar_10 import CIFAR10DataModule
 from default.classifier import get_default_classifier
 from default.stem import get_default_stem
 from utils.tensor import get_output_channels

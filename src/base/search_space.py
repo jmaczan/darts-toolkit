@@ -28,11 +28,6 @@ class BaseSearchSpace(nn.Module, ABC):
         self.drop_path_prob_start = drop_path_prob_start
 
         self.architecture_parameters: nn.ParameterList
-        self._initialize_architecture_parameters()
-
-    @abstractmethod
-    def _initialize_architecture_parameters(self):
-        pass
 
     @abstractmethod
     def forward(self, x: torch.Tensor) -> torch.Tensor:

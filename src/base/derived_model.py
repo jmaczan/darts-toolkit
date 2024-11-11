@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 import torch.nn as nn
 import torch.nn.functional as F
 
-from components.auxiliary_classifier import AuxiliaryHead
+from component.auxiliary_classifier import AuxiliaryHead
 from default.classifier import get_default_classifier
 from default.optimizers import (
     get_default_arch_optimizer,
@@ -150,6 +150,24 @@ class BaseDerivedModel(pl.LightningModule):
         self.log("train_loss", loss)
         self.log("train_acc", acc)
         return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        self.log("val_loss", loss)
+        self.log("val_acc", acc)
+        return {"val_loss": loss, "val_acc": acc}
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        self.log("test_loss", loss)
+        self.log("test_acc", acc)
+        return {"test_loss": loss, "test_acc": acc}
 
     def configure_optimizers(self):
         return [

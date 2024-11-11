@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 
 from base.search_space import BaseSearchSpace
-from components.auxiliary_classifier import AuxiliaryHead
+from component.auxiliary_classifier import AuxiliaryHead
 from default.classifier import get_default_classifier
 from default.optimizers import (
     get_default_arch_optimizer,
