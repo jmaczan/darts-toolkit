@@ -39,9 +39,9 @@ class BaseDARTSModel(pl.LightningModule, ABC):
         self.search_space = search_space
         self.config = config
         self.stem = stem
-        stem_output_channels = get_output_channels(self.stem)
+        self.stem_output_channels = get_output_channels(self.stem)
         self.classifier = classifier or get_default_classifier(
-            in_features=stem_output_channels,
+            in_features=self.stem_output_channels,
             out_features=config["model"]["num_classes"],
         )
         self.features = features
@@ -49,7 +49,7 @@ class BaseDARTSModel(pl.LightningModule, ABC):
 
         if self.features.get("auxiliary_head"):
             self.auxiliary_head = AuxiliaryHead(
-                in_channels=stem_output_channels,
+                in_channels=self.stem_output_channels,
                 num_classes=config["model"]["num_classes"],
             )
 
