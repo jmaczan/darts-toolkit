@@ -23,9 +23,9 @@ class BaseSearchSpace(nn.Module, ABC):
         self.num_nodes = num_nodes
         self.in_channels = in_channels
         self.candidate_operations = nn.ModuleList(candidate_operations)
-        self.temperature_start = temperature_start
+        self.temperature = temperature_start
         self.operations_count = len(candidate_operations)
-        self.drop_path_prob_start = drop_path_prob_start
+        self.drop_path_prob = drop_path_prob_start
 
         self.architecture_parameters: nn.ParameterList
 
@@ -40,10 +40,10 @@ class BaseSearchSpace(nn.Module, ABC):
         pass
 
     def update_temperature(self, temperature: float):
-        self.temperature_start = temperature
+        self.temperature = temperature
 
     def update_drop_path_prob(self, drop_path_prob: float):
-        self.drop_path_prob_start = drop_path_prob
+        self.drop_path_prob = drop_path_prob
 
     def derive_architecture(self):
         """Derive the final architecture from the current architecture parameters.
