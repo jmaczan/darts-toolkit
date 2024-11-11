@@ -25,6 +25,7 @@ class PCDARTSSearchSpace(BaseSearchSpace):
         temperature_start: float = 1.0,
         drop_path_prob_start: float = 0.0,
         candidate_operations=default_pc_darts_candidate_operations(),
+        arch_parameters=None,
     ):
         super().__init__(
             num_nodes=num_nodes,
@@ -41,6 +42,15 @@ class PCDARTSSearchSpace(BaseSearchSpace):
         self.channels_per_segment = in_channels // num_segments
         self.channels_to_sample_per_segment = (
             num_partial_channel_connections // num_segments
+        )
+        self.num_ops = len(self.candidate_operations)
+
+        # initial architecture params (alpha)
+        self.arch_parameters = arch_parameters or nn.ParameterList(
+            [
+                nn.Parameter(1e-3 * torch.randn(i + 2, self.num_ops))
+                for i in range(self.num_nodes)
+            ]
         )
 
         # Edge normalization parameters

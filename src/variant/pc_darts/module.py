@@ -41,6 +41,8 @@ class PCDARTSModule(BaseDARTSModel):
             epochs=config["training"]["max_epochs"],
         )
 
+        self.automatic_optimization = False
+
     def training_step(self, batch, batch_idx):
         optimizer_weights, optimizer_arch, optimizer_edge_norm = self.optimizers()  # type: ignore
 
