@@ -40,6 +40,8 @@ class PCDARTSSearchSpace(BaseSearchSpace):
         self.edge_norm_init = edge_norm_init
         self.edge_norm_strength = edge_norm_strength
         self.num_segments = num_segments
+        if self.num_segments > in_channels:
+            print("in_channels can't be lower than num_segments")
         self.channels_per_segment = in_channels // num_segments
         self.channels_to_sample_per_segment = (
             num_partial_channel_connections // num_segments

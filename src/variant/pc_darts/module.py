@@ -103,15 +103,4 @@ class PCDARTSModule(BaseDARTSModel):
         self.log("temperature", self.search_space.temperature)
 
     def configure_optimizers(self):
-        optimizers = super().configure_optimizers()[0]
-
-        # Add edge norm optimizer
-        optimizer_edge_norm = Adam(
-            self.edge_norm_params,
-            lr=self.config["training"]["edge_norm_learning_rate"],
-            betas=(0.5, 0.999),
-            weight_decay=self.config["training"]["edge_norm_weight_decay"],
-        )
-
-        optimizers.append(optimizer_edge_norm)
-        return optimizers, super().configure_optimizers()[1]
+        return super().configure_optimizers()

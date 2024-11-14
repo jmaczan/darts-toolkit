@@ -12,7 +12,7 @@ model:
   num_partial_channel_connections: 4
   edge_norm_init: 1.0
   edge_norm_strength: 1.0
-  num_segments: 4
+  num_segments: 3
   temperature_start: 1.0
   temperature_end: 0.1
   auxiliary_weight: 0.4
