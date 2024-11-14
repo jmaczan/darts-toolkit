@@ -7,6 +7,7 @@ from base.operations import (
     DynamicSizeDilatedConv2d,
     DynamicSizeSeparableConv2d,
     Identity,
+    ZeroOp,
 )
 from base.search_space import BaseSearchSpace
 from component.regularization import DropPath
@@ -113,10 +114,20 @@ class PCDARTSSearchSpace(BaseSearchSpace):
                         node_inputs.append(
                             self.drop_path(normalized_weights[j] * expanded_output)
                         )
-                    else:
+                    elif isinstance(op, (nn.MaxPool2d, nn.AvgPool2d)):
+                        # pooling operations
                         node_inputs.append(
                             self.drop_path(normalized_weights[j] * op(states[i]))
                         )
+                    elif isinstance(op, ZeroOp):
+                        # zero operation - no connection
+                        node_inputs.append(
+                            self.drop_path(
+                                normalized_weights[j] * torch.zeros_like(states[i])
+                            )
+                        )
+                    else:
+                        raise ValueError(f"Unknown operation type: {type(op)}")
 
             states.append(
                 torch.sum(torch.stack(node_inputs), dim=0)
