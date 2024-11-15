@@ -48,7 +48,7 @@ class BaseDerivedModel(pl.LightningModule):
 
         if self.features.get("auxiliary_head"):
             self.auxiliary_head = AuxiliaryHead(
-                in_channels=self.stem_output_channels,
+                in_channels=self.stem_output_channels,  # type: ignore
                 num_classes=config["model"]["num_classes"],
             )
 

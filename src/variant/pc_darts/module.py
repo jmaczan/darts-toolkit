@@ -1,3 +1,4 @@
+import torch
 import torch.nn.functional as F
 
 from base.darts_model import BaseDARTSModel
@@ -115,3 +116,16 @@ class PCDARTSModule(BaseDARTSModel):
 
     def configure_optimizers(self):
         return super().configure_optimizers()
+
+    def test_step(self, batch, batch_idx: int) -> dict[str, float | torch.Tensor]:
+        """Implement test step for PC-DARTS."""
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        acc = (logits.argmax(dim=-1) == y).float().mean()
+
+        # Log metrics
+        self.log("test_loss", loss)
+        self.log("test_acc", acc)
+
+        return {"test_loss": loss, "test_acc": acc}
