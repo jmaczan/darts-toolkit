@@ -51,16 +51,10 @@ class PCDARTSModule(BaseDARTSModel):
         input_train, target_train = batch["train"]
         input_search, target_search = batch["search"]
 
-        # Debug shapes
-        print(f"Input search shape: {input_search.shape}")
-
         # Update architecture parameters
         optimizer_arch.zero_grad()
         try:
             logits_arch, aux_logits_arch = self(input_search)
-            print(
-                f"Logits shape: {logits_arch.shape}, Aux logits shape: {aux_logits_arch.shape}"
-            )
         except Exception as e:
             print(f"Error in forward pass: {e}")
             print(f"Input shape: {input_search.shape}")
