@@ -32,6 +32,7 @@ class BaseDerivedModel(pl.LightningModule):
         super().__init__()
         self.config = config
         self.derived_architecture = derived_architecture
+        self.auxiliary_head_position = None
 
         self.stem = stem
         self.stem_output_channels = get_output_channels(self.stem)
@@ -47,7 +48,6 @@ class BaseDerivedModel(pl.LightningModule):
                 in_channels=self.stem_output_channels,  # type: ignore
                 num_classes=config["model"]["num_classes"],
             )
-
             self.auxiliary_head_position = (
                 self.config["model"]["num_cells"] // 3 * 2
             )  # put it at 2/3 of the network
@@ -98,14 +98,20 @@ class BaseDerivedModel(pl.LightningModule):
             for node in cell:  # type: ignore
                 node_inputs = []
                 for i, op in enumerate(node):
-                    if i < len(cell_states):  # only use available previous states
+                    if i < len(cell_states):
                         node_inputs.append(op(cell_states[i]))
                 node_output = sum(node_inputs)
                 cell_states.append(node_output)
-            x = cell_states[-1]  # use the latest state as cell output
+            x = cell_states[-1]
             print(f"After cell {i} shape: {x.shape}")
-            if self.training and i == self.auxiliary_head_position:
-                aux_logits = self.auxiliary_head(x)  # type: ignore
+
+            if (
+                self.training
+                and self.auxiliary_head is not None
+                and self.auxiliary_head_position is not None
+            ):
+                if i == self.auxiliary_head_position:
+                    aux_logits = self.auxiliary_head(x)
 
         print(f"Classifier input features: {self.classifier[-1].in_features}")
         print(f"Classifier output features: {self.classifier[-1].out_features}")
