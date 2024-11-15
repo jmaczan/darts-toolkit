@@ -11,8 +11,6 @@ model:
   num_cells: 8
   beta: 1.0
   reg_strength: 0.1
-  temperature_start: 1.0
-  temperature_end: 0.1
   auxiliary_weight: 0.4
 
 training:
@@ -20,11 +18,12 @@ training:
   momentum: 0.9
   learning_rate: 0.025
   arch_learning_rate: 0.001
-  weight_decay: 0.0003
-  arch_weight_decay: 0.001
+  weight_decay: 3e-4
+  arch_weight_decay: 1e-3
   derived_epochs: 100
   drop_path_prob_start: 0.0
   drop_path_prob_end: 0.3
+  grad_clip_norm: 5.0
 
 logging:
   log_dir: "logs/"
