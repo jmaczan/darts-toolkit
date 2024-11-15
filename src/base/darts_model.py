@@ -29,6 +29,7 @@ class BaseDARTSModel(pl.LightningModule, ABC):
         classifier=None,
         features={
             "auxiliary_head": False,
+            "edge_norm": False,
         },
         weights_optimizer=None,
         arch_optimizer=None,
@@ -61,11 +62,13 @@ class BaseDARTSModel(pl.LightningModule, ABC):
             self.weight_params += list(self.auxiliary_head.parameters())
 
         self.arch_params = list(self.search_space.arch_parameters.parameters())
-        self.edge_norm_params = (
-            list(self.search_space.edge_norms.parameters())
-            if hasattr(self.search_space, "edge_norms")
-            else []
-        )
+
+        if self.features.get("edge_norm"):
+            self.edge_norm_params = (
+                list(self.search_space.edge_norms.parameters())
+                if hasattr(self.search_space, "edge_norms")
+                else []
+            )
 
         self.weights_optimizer = weights_optimizer or get_default_weights_optimizer(
             self.weight_params, self.config
@@ -75,10 +78,11 @@ class BaseDARTSModel(pl.LightningModule, ABC):
             self.arch_params, self.config
         )
 
-        self.edge_norm_optimizer = (
-            edge_norm_optimizer
-            or get_default_edge_norm_optimizer(self.edge_norm_params, self.config)
-        )
+        if self.features.get("edge_norm"):
+            self.edge_norm_optimizer = (
+                edge_norm_optimizer
+                or get_default_edge_norm_optimizer(self.edge_norm_params, self.config)
+            )
 
         self.schedulers = (
             schedulers
@@ -130,5 +134,4 @@ class BaseDARTSModel(pl.LightningModule, ABC):
         return [
             self.weights_optimizer,
             self.arch_optimizer,
-            self.edge_norm_optimizer,  # possibly unnecessary here
         ], self.schedulers

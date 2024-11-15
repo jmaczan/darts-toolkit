@@ -3,6 +3,7 @@ import torch.nn.functional as F
 
 from base.darts_model import BaseDARTSModel
 from component.schedulers import DropPathScheduler, TemperatureScheduler
+from default.optimizers import get_default_edge_norm_optimizer
 from variant.pc_darts.search_space import PCDARTSSearchSpace
 
 
@@ -115,7 +116,12 @@ class PCDARTSModule(BaseDARTSModel):
         self.log("temperature", self.search_space.temperature)
 
     def configure_optimizers(self):
-        return super().configure_optimizers()
+        optimizers, schedulers = super().configure_optimizers()
+        edge_norm_optimizer = get_default_edge_norm_optimizer(
+            self.edge_norm_params, self.config
+        )
+        optimizers.append(edge_norm_optimizer)
+        return optimizers, schedulers
 
     def test_step(self, batch, batch_idx: int) -> dict[str, float | torch.Tensor]:
         """Implement test step for PC-DARTS."""
