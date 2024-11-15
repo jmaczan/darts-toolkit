@@ -1,4 +1,6 @@
 import torch.nn.functional as F
+from torch.optim.adam import Adam
+from torch.optim.sgd import SGD
 
 from base.darts_model import BaseDARTSModel
 from component.schedulers import DropPathScheduler
@@ -147,14 +149,14 @@ class FairDARTSModule(BaseDARTSModel):
         ]
 
         # Create optimizers with correct parameters
-        optimizer_weights = torch.optim.SGD(
+        optimizer_weights = SGD(
             weight_params,
             lr=self.config["training"]["learning_rate"],
             momentum=self.config["training"]["momentum"],
             weight_decay=self.config["training"]["weight_decay"],
         )
 
-        optimizer_arch = torch.optim.Adam(
+        optimizer_arch = Adam(
             arch_params,
             lr=self.config["training"]["arch_learning_rate"],
             betas=(0.5, 0.999),
