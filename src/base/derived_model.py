@@ -7,8 +7,6 @@ import torch.nn.functional as F
 from component.auxiliary_classifier import AuxiliaryHead
 from default.classifier import get_default_classifier
 from default.optimizers import (
-    get_default_arch_optimizer,
-    get_default_edge_norm_optimizer,
     get_default_weights_optimizer,
 )
 from default.scheduler import get_default_weights_scheduler
@@ -29,8 +27,6 @@ class BaseDerivedModel(pl.LightningModule):
             "auxiliary_head": False,
         },
         weights_optimizer=None,
-        arch_optimizer=None,
-        edge_norm_optimizer=None,
         schedulers=None,
     ):
         super().__init__()
@@ -65,20 +61,8 @@ class BaseDerivedModel(pl.LightningModule):
         if self.auxiliary_head:
             self.weight_params += list(self.auxiliary_head.parameters())
 
-        self.arch_params = list(self.search_space.arch_parameters.parameters())
-        self.edge_norm_params = list(self.search_space.edge_norms.parameters())
-
         self.weights_optimizer = weights_optimizer or get_default_weights_optimizer(
             self.weight_params, self.config
-        )
-
-        self.arch_optimizer = arch_optimizer or get_default_arch_optimizer(
-            self.arch_params, self.config
-        )
-
-        self.edge_norm_optimizer = (
-            edge_norm_optimizer
-            or get_default_edge_norm_optimizer(self.edge_norm_params, self.config)
         )
 
         self.schedulers = (
@@ -172,6 +156,4 @@ class BaseDerivedModel(pl.LightningModule):
     def configure_optimizers(self):
         return [
             self.weights_optimizer,
-            self.arch_optimizer,
-            self.edge_norm_optimizer,  # possibly unnecessary here
         ], self.schedulers
