@@ -36,39 +36,86 @@ class FairDARTSModule(BaseDARTSModel):
         input_train, target_train = batch["train"]
         input_search, target_search = batch["search"]
 
-        # Update architecture parameters
+        # First update architecture parameters
         optimizer_arch.zero_grad()
         logits_arch, aux_logits_arch = self(input_search)
+
+        # Architecture loss with FAIR regularization
         loss_arch = F.cross_entropy(logits_arch, target_search)
         if aux_logits_arch is not None:
             aux_loss_arch = F.cross_entropy(aux_logits_arch, target_search)
             loss_arch += self.config["model"]["auxiliary_weight"] * aux_loss_arch
 
-        # Add competition-aware regularization
+        # Add FAIR competition-aware regularization
         reg_loss = self.search_space.compute_regularization_loss()
         loss_arch += reg_loss
 
         self.manual_backward(loss_arch)
         optimizer_arch.step()
 
-        # Update network weights
+        # Then update network weights
         optimizer_weights.zero_grad()
         logits_weights, aux_logits_weights = self(input_train)
         loss_weights = F.cross_entropy(logits_weights, target_train)
         if aux_logits_weights is not None:
             aux_loss_weights = F.cross_entropy(aux_logits_weights, target_train)
             loss_weights += self.config["model"]["auxiliary_weight"] * aux_loss_weights
+
         self.manual_backward(loss_weights)
         optimizer_weights.step()
 
         # Log metrics
-        self.log("train_loss_weights", loss_weights)
-        self.log("train_loss_arch", loss_arch)
-        self.log("reg_loss", reg_loss)
+        self.log_dict(
+            {
+                "train_loss_weights": loss_weights,
+                "train_loss_arch": loss_arch,
+                "reg_loss": reg_loss,
+                "train_acc": (logits_weights.argmax(dim=-1) == target_train)
+                .float()
+                .mean(),
+            }
+        )
 
         return {"loss": loss_weights}
 
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        if isinstance(logits, tuple):
+            logits = logits[0]  # Use main output, not auxiliary
+
+        loss = F.cross_entropy(logits, y)
+        acc = (logits.argmax(dim=-1) == y).float().mean()
+
+        self.log_dict(
+            {
+                "val_loss": loss,
+                "val_acc": acc,
+            }
+        )
+
+        return {"val_loss": loss, "val_acc": acc}
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        if isinstance(logits, tuple):
+            logits = logits[0]
+
+        loss = F.cross_entropy(logits, y)
+        acc = (logits.argmax(dim=-1) == y).float().mean()
+
+        self.log_dict(
+            {
+                "test_loss": loss,
+                "test_acc": acc,
+            }
+        )
+
+        return {"test_loss": loss, "test_acc": acc}
+
     def on_train_epoch_start(self):
+        # Update drop path probability
         self.search_space.update_drop_path_prob(
             self.drop_path_scheduler(self.current_epoch)
         )
