@@ -129,3 +129,7 @@ class PCDARTSModule(BaseDARTSModel):
         self.log("test_acc", acc)
 
         return {"test_loss": loss, "test_acc": acc}
+
+    def derive_architecture(self):
+        """Derive the final architecture from the trained model."""
+        return self.search_space.derive_architecture()
