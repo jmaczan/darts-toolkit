@@ -1,3 +1,4 @@
+import torch
 import torch.nn.functional as F
 
 from base.darts_model import BaseDARTSModel
@@ -75,3 +76,16 @@ class DARTSModule(BaseDARTSModel):
         )
         self.log("drop_path_prob", self.search_space.drop_path_prob)
         self.log("temperature", self.search_space.temperature)
+
+    def test_step(self, batch, batch_idx: int) -> dict[str, float | torch.Tensor]:
+        """Implement test step for DARTS."""
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        acc = (logits.argmax(dim=-1) == y).float().mean()
+
+        # Log metrics
+        self.log("test_loss", loss)
+        self.log("test_acc", acc)
+
+        return {"test_loss": loss, "test_acc": acc}
