@@ -89,3 +89,24 @@ class DARTSModule(BaseDARTSModel):
         self.log("test_acc", acc)
 
         return {"test_loss": loss, "test_acc": acc}
+
+    def derive_architecture(self) -> list:
+        """Derive the final architecture based on learned alpha parameters."""
+        derived_arch = []
+
+        # For each intermediate node
+        for node_idx in range(self.search_space.num_nodes):
+            node_ops = []
+            # For each possible input to this node
+            for edge_idx in range(node_idx + 2):
+                # Get the weights for this edge
+                weights = self.search_space.get_weights(node_idx, edge_idx)
+                # Choose the operation with the highest weight
+                best_op_idx = weights.argmax().item()
+                # Add the chosen operation to the node
+                node_ops.append(
+                    (edge_idx, self.search_space.candidate_operations[int(best_op_idx)])
+                )
+            derived_arch.append(node_ops)
+
+        return derived_arch
