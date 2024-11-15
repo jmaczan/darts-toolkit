@@ -49,7 +49,7 @@ class BaseDARTSModel(pl.LightningModule, ABC):
 
         if self.features.get("auxiliary_head"):
             self.auxiliary_head = AuxiliaryHead(
-                in_channels=self.stem_output_channels,
+                in_channels=self.stem_output_channels,  # type: ignore
                 num_classes=config["model"]["num_classes"],
             )
 
@@ -86,14 +86,25 @@ class BaseDARTSModel(pl.LightningModule, ABC):
         self, x: torch.Tensor
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         x = self.stem(x)
-        x = self.search_space(x)
-        x = self.classifier(x)
+        # Get intermediate output for auxiliary head
+        features = self.search_space(x)
 
-        if self.auxiliary_head and self.training:
-            aux_logits = self.auxiliary_head(x)
-            return (x, aux_logits)
+        # Apply auxiliary head before final classifier if in training mode
+        aux_logits = None
+        if self.auxiliary_head is not None and self.training:
+            # Ensure features has the correct shape [B, C, H, W]
+            if len(features.shape) != 4:
+                raise ValueError(
+                    f"Expected 4D tensor for auxiliary head, got shape {features.shape}"
+                )
+            aux_logits = self.auxiliary_head(features)
 
-        return x
+        # Apply final classifier
+        logits = self.classifier(features)
+
+        if aux_logits is not None:
+            return logits, aux_logits
+        return logits
 
     @abstractmethod
     def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:

@@ -189,7 +189,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
 
         self.stem = get_default_stem()
 
-        stem_output_channels = get_output_channels(self.stem)
+        stem_output_channels = get_output_channels(self.stem)  # type: ignore
 
         self.search_space = LPCDARTSSearchSpace(
             in_channels=stem_output_channels,
@@ -228,7 +228,7 @@ class LPCDARTSLightningModule(pl.LightningModule):
 
         self.auxiliary_weight = config["model"].get("auxiliary_weight", 0.4)
         self.auxiliary_head = AuxiliaryHead(
-            in_channels=stem_output_channels,
+            in_channels=stem_output_channels,  # type: ignore
             num_classes=config["model"]["num_classes"],
         )
 
@@ -429,7 +429,7 @@ class DerivedPCDARTSModel(pl.LightningModule):
             self.num_cells // 3 * 2
         )  # put it at 2/3 of the network
         self.auxiliary_head = AuxiliaryHead(
-            in_channels=self.cell_channels,
+            in_channels=self.cell_channels,  # type: ignore
             num_classes=self.num_classes,
         )
 
