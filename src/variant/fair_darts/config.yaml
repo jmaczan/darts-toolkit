@@ -1,0 +1,31 @@
+data:
+  dataset: cifar10
+  data_dir: "./data"
+  batch_size: 64
+  num_workers: 4
+
+model:
+  in_channels: 16
+  num_classes: 10
+  num_nodes: 4
+  num_cells: 8
+  beta: 1.0
+  reg_strength: 0.1
+  temperature_start: 1.0
+  temperature_end: 0.1
+  auxiliary_weight: 0.4
+
+training:
+  max_epochs: 50
+  momentum: 0.9
+  learning_rate: 0.025
+  arch_learning_rate: 0.001
+  weight_decay: 0.0003
+  arch_weight_decay: 0.001
+  derived_epochs: 100
+  drop_path_prob_start: 0.0
+  drop_path_prob_end: 0.3
+
+logging:
+  log_dir: "logs/"
+  experiment_name: "fair_darts"
