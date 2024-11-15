@@ -61,7 +61,11 @@ class BaseDARTSModel(pl.LightningModule, ABC):
             self.weight_params += list(self.auxiliary_head.parameters())
 
         self.arch_params = list(self.search_space.arch_parameters.parameters())
-        self.edge_norm_params = list(self.search_space.edge_norms.parameters())
+        self.edge_norm_params = (
+            list(self.search_space.edge_norms.parameters())
+            if hasattr(self.search_space, "edge_norms")
+            else []
+        )
 
         self.weights_optimizer = weights_optimizer or get_default_weights_optimizer(
             self.weight_params, self.config
