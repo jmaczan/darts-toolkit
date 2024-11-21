@@ -58,13 +58,20 @@ class Node(nn.Module):
     def __init__(self, operations: list, in_channels: int, stride: int):
         super().__init__()
         self.ops = nn.ModuleList()
+        self.input_indices = []  # Store indices separately
         for input_idx, op_class in operations:
             op = op_class.to_trainable(in_channels)
             if stride > 1 and input_idx in [0, 1]:  # Apply stride only to input nodes
                 op = nn.Sequential(op, nn.MaxPool2d(2, stride=2))
-            self.ops.append((input_idx, op))  # type: ignore
+            self.ops.append(op)  # Store only the operation
+            self.input_indices.append(input_idx)  # Store the index separately
 
     def forward(self, states: List[torch.Tensor]) -> torch.Tensor:
-        # Sum all input operations
-        out = torch.sum(op(states[input_idx]) for input_idx, op in self.ops)  # type: ignore
+        # Use torch.stack and sum to ensure tensor output
+        out = torch.sum(
+            torch.stack(
+                [op(states[idx]) for op, idx in zip(self.ops, self.input_indices)]
+            ),
+            dim=0,
+        )
         return out
