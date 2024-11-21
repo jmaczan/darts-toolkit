@@ -87,10 +87,7 @@ class BaseDerivedModel(pl.LightningModule):
         return cell
 
     def forward(self, x):
-        print(f"Input shape: {x.shape}")
-
         x = self.stem(x)
-        print(f"After stem shape: {x.shape}")
 
         aux_logits = None
         for i, cell in enumerate(self.cells):
@@ -103,7 +100,6 @@ class BaseDerivedModel(pl.LightningModule):
                 node_output = sum(node_inputs)
                 cell_states.append(node_output)
             x = cell_states[-1]
-            print(f"After cell {i} shape: {x.shape}")
 
             if (
                 self.training
@@ -113,8 +109,6 @@ class BaseDerivedModel(pl.LightningModule):
                 if i == self.auxiliary_head_position:
                     aux_logits = self.auxiliary_head(x)
 
-        print(f"Classifier input features: {self.classifier[-1].in_features}")
-        print(f"Classifier output features: {self.classifier[-1].out_features}")
         logits = self.classifier(x)
 
         if self.training and aux_logits is not None:
