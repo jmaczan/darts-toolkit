@@ -1,9 +1,11 @@
 from typing import Any, Dict
 
 import pytorch_lightning as pl
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from base.cell import Cell
 from component.auxiliary_classifier import AuxiliaryHead
 from default.classifier import get_default_classifier
 from default.optimizers import (
@@ -72,47 +74,54 @@ class BaseDerivedModel(pl.LightningModule):
         )
 
     def _build_cells(self) -> nn.ModuleList:
-        return nn.ModuleList(
-            [self._make_cell() for _ in range(self.config["model"]["num_cells"])]
-        )
+        cells = nn.ModuleList()
+        num_cells = self.config["model"]["num_cells"]
 
-    def _make_cell(self):
-        cell = nn.ModuleList()
+        for cell_idx in range(num_cells):
+            # Determine if this is a reduction cell (1/3 and 2/3 through the network)
+            is_reduction = cell_idx in [num_cells // 3, 2 * num_cells // 3]
 
-        for node_ops in self.derived_architecture:
-            node = nn.ModuleList()
-            for i, op in node_ops:
-                node.append(op.to_trainable(self.config["model"]["in_channels"]))
-            cell.append(node)
-        return cell
+            if is_reduction:
+                stride = 2
+                # Double channels after reduction
+                self.stem_output_channels *= 2  # type: ignore
+            else:
+                stride = 1
 
-    def forward(self, x):
-        x = self.stem(x)
+            cell = Cell(
+                derived_architecture=self.derived_architecture,
+                in_channels=self.stem_output_channels,  # type: ignore
+                stride=stride,
+            )
+            cells.append(cell)
 
-        aux_logits = None
+        return cells
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Initial stem processing
+        x = self.stem(x)  # Shape: [B, 64, H, W]
+
+        # Initialize previous cell states
+        s0 = s1 = x  # Both start with stem output
+
+        # Process each cell
         for i, cell in enumerate(self.cells):
-            cell_states = [x]
-            for node in cell:  # type: ignore
-                node_inputs = []
-                for i, op in enumerate(node):
-                    if i < len(cell_states):
-                        node_inputs.append(op(cell_states[i]))
-                node_output = sum(node_inputs)
-                cell_states.append(node_output)
-            x = cell_states[-1]
+            s0, s1 = s1, cell(s0, s1)  # Cell takes two previous states
 
             if (
                 self.training
-                and self.auxiliary_head is not None
-                and self.auxiliary_head_position is not None
+                and self.auxiliary_head
+                and i == self.auxiliary_head_position
             ):
-                if i == self.auxiliary_head_position:
-                    aux_logits = self.auxiliary_head(x)
+                aux_logits = self.auxiliary_head(s1)
 
-        logits = self.classifier(x)
+        # Final classification
+        out = self.adaptive_avg_pool2d(s1, 1)
+        out = out.view(out.size(0), -1)
+        logits = self.classifier(out)
 
-        if self.training and aux_logits is not None:
-            return logits, aux_logits
+        if self.training and self.auxiliary_head:
+            return logits, aux_logits  # type: ignore
         return logits
 
     def training_step(self, batch, batch_idx):
