@@ -10,8 +10,10 @@ The architecture of a neural network that DARTS finds is called a `cell`. It's a
 
 ## How to search
 
-Both architecture and network parameters are being modified during architecture search. We train network parameters, like weights and biases, using architecture parameters. Then, we train architecture parameters using network parameters. We keep alternating these two steps of optimization until we get good enough results or run out of time. Sensibly, it is called `bi-level optimization`. In the end, to form the final architecture, in every edge we pick the candidate operation that has the highest architecture parameter (alpha).
+Both architecture and network parameters are being modified during architecture search. We train the network parameters, like weights and biases, using architecture parameters. Then, we train the architecture parameters using network parameters. We alternate between these two optimizations until we get satisfying results or run out of resources (time, budget, etc.). Sensibly, this kind of training is called `bi-level optimization`.
 
 At the beginning of the architecture search, all nodes are connected with edges to all preceeding them nodes. Architecture parameters (alphas) in edges are initialized with small random values. Likewise, the candidate operations that have trainable parameters are initialized with random values.
+
+In the end, in order to form the final architecture, in every edge we pick the candidate operation that has the highest architecture parameter (alpha).
 
 Once architecture search is done, each edge is exactly a single operation (like 3x3 convolution, 5x5 max pooling etc.).
