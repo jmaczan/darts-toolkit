@@ -10,10 +10,8 @@ An architecture of a neural network that DARTS `cell`. It's a repeatable block o
 
 ## How to search
 
-Both architecture and network parameters are being modified during architecture search. We train network parameters, like weights and biases, using architecture parameters. Then, we train architecture parameters using network parameters. We keep alternating these two steps of optimization until we get good enough results or run out of time. Sensibly, it is called `bi-level optimization`. In the end, to form the final architecture, in every edge we pick the candidate operation that has highest value of architecture parameter (alpha).
+Both architecture and network parameters are being modified during architecture search. We train network parameters, like weights and biases, using architecture parameters. Then, we train architecture parameters using network parameters. We keep alternating these two steps of optimization until we get good enough results or run out of time. Sensibly, it is called `bi-level optimization`. In the end, to form the final architecture, in every edge we pick the candidate operation that has the highest architecture parameter (alpha).
 
-At the beginning of the architecture search, all nodes are connected with edges to all preceeding them nodes. Architecture parameters (alphas) in each edge are initialized with small random values. Likewise, the candidate operations that have trainable parameters are initialized with random values.
+At the beginning of the architecture search, all nodes are connected with edges to all preceeding them nodes. Architecture parameters (alphas) in edges are initialized with small random values. Likewise, the candidate operations that have trainable parameters are initialized with random values.
 
 Once architecture search is done, each edge is exactly a single operation (like 3x3 convolution, 5x5 max pooling etc.).
-
-The method we use is called Differentiable Architecture Search (DARTS for short). It's differentiable, because
