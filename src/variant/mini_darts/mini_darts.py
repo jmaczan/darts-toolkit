@@ -1,5 +1,6 @@
 from typing import List
 
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,18 +13,57 @@ class Node(nn.Module):
 
 
 class Edge(nn.Module):
-    def __init__(self, available_operations: List[str]):
+    def __init__(self, available_operations: List[str], out_channels: int = 16):
         super().__init__()
-        self.mixed_operation = MixedOperation(available_operations=available_operations)
+        self.mixed_operation = MixedOperation(
+            available_operations=available_operations, out_channels=out_channels
+        )
         self.alphas = nn.Parameter(
             torch.randn(len(available_operations)) * 0.001
         )  # 0.001 to initialize alphas to a small values
 
+    def forward(self, x):
+        return self.mixed_operation(x, F.softmax(self.alphas, dim=-1))
+
 
 class MixedOperation(nn.Module):
-    def __init__(self, available_operations: List[str]):
+    def __init__(self, available_operations: List[str], out_channels: int = 16):
         super().__init__()
-        self.ops = available_operations
+        self.ops = nn.ModuleList()
+
+        for operation_name in available_operations:
+            if operation_name == "max_pool_3x3":
+                op = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+            elif operation_name == "avg_pool_3x3":
+                op = nn.AvgPool2d(kernel_size=3, stride=1, padding=1)
+            elif operation_name == "conv_3x3":
+                op = nn.Sequential(
+                    nn.Conv2d(
+                        in_channels=out_channels,
+                        out_channels=out_channels,
+                        kernel_size=3,
+                        padding=1,
+                        bias=False,
+                        groups=out_channels,
+                    ),
+                    nn.Conv2d(
+                        in_channels=out_channels,
+                        out_channels=out_channels,
+                        kernel_size=1,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(num_features=out_channels),
+                    nn.ReLU(),
+                )
+            elif operation_name == "identity":
+                op = nn.Identity()
+            else:
+                raise ValueError(f"Operation {operation_name} not supported")
+
+            self.ops.append(op)
+
+    def forward(self, x, alphas):
+        return sum(op(x) * alpha for op, alpha in zip(self.ops, alphas))
 
 
 class Cell(nn.Module):
@@ -51,7 +91,7 @@ class Cell(nn.Module):
         self._initialize_edges()
 
     def _initialize_edges(self):
-        for i in range(self.num_intermediate_nodes):
+        for i in range(self.num_input_nodes, self.num_nodes):
             for _ in range(i):
                 edge = Edge(available_operations=self.available_operations)
                 self.nodes[i].edges.append(edge)
@@ -62,19 +102,19 @@ class Cell(nn.Module):
         for _ in range(self.num_input_nodes):
             node_outputs.append(input_features)
 
-        for i in range(self.num_intermediate_nodes):
+        for i in range(
+            self.num_input_nodes, self.num_intermediate_nodes - self.num_output_nodes
+        ):
             node_inputs = []
             for j, edge in enumerate(self.nodes[i].edges):  # edges to node i
-                node_inputs.append(
-                    edge.mixed_operation(node_outputs[j])
-                )  # TODO: won't work yet
+                node_inputs.append(edge.mixed_operation(node_outputs[j]))
 
             node_outputs.append(sum(node_inputs))
 
-        pass
+        return node_outputs[-self.num_output_nodes :]
 
 
-class DARTS(nn.Module):
+class DARTS(pl.LightningModule):
     def __init__(self, available_operations: List[str], num_nodes: int = 6):
         super().__init__()
         self.available_operations = available_operations
@@ -85,10 +125,10 @@ class DARTS(nn.Module):
 
 def mini_darts_example():
     available_operations = [
-        nn.MaxPool2d,
-        nn.Conv2d,
-        nn.AvgPool2d,
-        nn.Identity,
+        "max_pool_3x3",
+        "conv_3x3",
+        "avg_pool_3x3",
+        "identity",
     ]
     model = DARTS(available_operations=available_operations)
     print(model)
