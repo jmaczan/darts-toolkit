@@ -70,20 +70,18 @@ class Cell(nn.Module):
     def __init__(
         self,
         available_operations: List[str],
-        num_intermediate_nodes: int = 6,
         num_input_nodes: int = 2,
+        num_intermediate_nodes: int = 4,
         num_output_nodes: int = 1,
     ):
         super().__init__()
         self.available_operations = available_operations
 
         self.num_input_nodes = num_input_nodes
-        self.num_intermediate_nodes = max(
-            num_intermediate_nodes - self.num_input_nodes, 1
-        )  # 1 to ensure there is at least one intermediate node
+        self.num_intermediate_nodes = num_intermediate_nodes
         self.num_output_nodes = num_output_nodes
         self.num_nodes = (
-            self.num_intermediate_nodes + self.num_input_nodes + self.num_output_nodes
+            self.num_input_nodes + self.num_intermediate_nodes + self.num_output_nodes
         )
 
         self.nodes = nn.ModuleList(Node() for _ in range(self.num_nodes))
@@ -91,27 +89,31 @@ class Cell(nn.Module):
         self._initialize_edges()
 
     def _initialize_edges(self):
-        for i in range(self.num_input_nodes, self.num_nodes):
-            for _ in range(i):
+        for node_index in range(self.num_input_nodes, self.num_nodes):
+            for edge_index in range(node_index):
                 edge = Edge(available_operations=self.available_operations)
-                self.nodes[i].edges.append(edge)
+                self.nodes[node_index].edges.append(edge)
 
     def forward(self, input_features):
-        node_outputs = []
+        every_node_output = []
 
         for _ in range(self.num_input_nodes):
-            node_outputs.append(input_features)
+            every_node_output.append(input_features)
 
-        for i in range(
-            self.num_input_nodes, self.num_intermediate_nodes - self.num_output_nodes
+        for node_index in range(
+            self.num_input_nodes,
+            self.num_input_nodes + self.num_intermediate_nodes,
         ):
-            node_inputs = []
-            for j, edge in enumerate(self.nodes[i].edges):  # edges to node i
-                node_inputs.append(edge.mixed_operation(node_outputs[j]))
+            current_node_inputs = []
+            for edge_index, edge in enumerate(self.nodes[node_index].edges):
+                current_node_inputs.append(
+                    edge.mixed_operation(every_node_output[edge_index])
+                )
 
-            node_outputs.append(sum(node_inputs))
+            every_node_output.append(sum(current_node_inputs))
+            # I wonder if other operation than sum() would give better search results?
 
-        return node_outputs[-self.num_output_nodes :]
+        return every_node_output[-self.num_output_nodes :]
 
 
 class DARTS(pl.LightningModule):
@@ -123,7 +125,7 @@ class DARTS(pl.LightningModule):
         )
 
 
-def mini_darts_example():
+def example():
     available_operations = [
         "max_pool_3x3",
         "conv_3x3",
@@ -135,4 +137,4 @@ def mini_darts_example():
 
 
 if __name__ == "__main__":
-    mini_darts_example()
+    example()
