@@ -6,6 +6,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def default_alphas(num_available_operations):
+    return nn.Parameter(
+        torch.randn(num_available_operations) * 0.001
+    )  # 0.001 to initialize alphas to a small values
+
+
+def default_stem(in_channels, out_channels):
+    return nn.Sequential(
+        nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+        nn.BatchNorm2d(out_channels),
+    )
+
+
 class Node(nn.Module):
     def __init__(self):
         super().__init__()
@@ -13,21 +26,30 @@ class Node(nn.Module):
 
 
 class Edge(nn.Module):
-    def __init__(self, available_operations: List[str], out_channels: int = 16):
+    def __init__(
+        self,
+        available_operations: List[str],
+        in_channels: int,
+        out_channels: int = 16,
+        alphas=None,
+    ):
         super().__init__()
         self.mixed_operation = MixedOperation(
-            available_operations=available_operations, out_channels=out_channels
+            available_operations=available_operations,
+            in_channels=in_channels,
+            out_channels=out_channels,
         )
-        self.alphas = nn.Parameter(
-            torch.randn(len(available_operations)) * 0.001
-        )  # 0.001 to initialize alphas to a small values
+        self.alphas = alphas or default_alphas(len(available_operations))
 
     def forward(self, x):
-        return self.mixed_operation(x, F.softmax(self.alphas, dim=-1))
+        weights = F.softmax(self.alphas, dim=-1)
+        return self.mixed_operation(x, weights)
 
 
 class MixedOperation(nn.Module):
-    def __init__(self, available_operations: List[str], out_channels: int = 16):
+    def __init__(
+        self, available_operations: List[str], in_channels: int, out_channels: int = 16
+    ):
         super().__init__()
         self.ops = nn.ModuleList()
 
@@ -39,15 +61,27 @@ class MixedOperation(nn.Module):
             elif operation_name == "conv_3x3":
                 op = nn.Sequential(
                     nn.Conv2d(
-                        in_channels=out_channels,
+                        in_channels=in_channels,
                         out_channels=out_channels,
                         kernel_size=3,
                         padding=1,
                         bias=False,
-                        groups=out_channels,
+                    ),
+                    nn.BatchNorm2d(num_features=out_channels),
+                    nn.ReLU(),
+                )
+            elif operation_name == "sep_conv_3x3":
+                op = nn.Sequential(
+                    nn.Conv2d(
+                        in_channels=in_channels,
+                        out_channels=in_channels,
+                        kernel_size=3,
+                        padding=1,
+                        groups=in_channels,
+                        bias=False,
                     ),
                     nn.Conv2d(
-                        in_channels=out_channels,
+                        in_channels=in_channels,
                         out_channels=out_channels,
                         kernel_size=1,
                         bias=False,
@@ -56,11 +90,14 @@ class MixedOperation(nn.Module):
                     nn.ReLU(),
                 )
             elif operation_name == "identity":
-                op = nn.Identity()
+                op = nn.Identity() if in_channels == out_channels else None
+            elif operation_name == "none":
+                op = NoConnectionOp()
             else:
                 raise ValueError(f"Operation {operation_name} not supported")
 
-            self.ops.append(op)
+            if op is not None:
+                self.ops.append(op)
 
     def forward(self, x, alphas):
         return sum(op(x) * alpha for op, alpha in zip(self.ops, alphas))
@@ -69,12 +106,17 @@ class MixedOperation(nn.Module):
 class Cell(nn.Module):
     def __init__(
         self,
+        in_channels: int,
+        out_channels: int,
         available_operations: List[str],
         num_input_nodes: int = 2,
         num_intermediate_nodes: int = 4,
         num_output_nodes: int = 1,
     ):
         super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
         self.available_operations = available_operations
 
         self.num_input_nodes = num_input_nodes
@@ -83,6 +125,8 @@ class Cell(nn.Module):
         self.num_nodes = (
             self.num_input_nodes + self.num_intermediate_nodes + self.num_output_nodes
         )
+
+        self.stem = default_stem(in_channels, out_channels)
 
         self.nodes = nn.ModuleList(Node() for _ in range(self.num_nodes))
 
@@ -116,17 +160,37 @@ class Cell(nn.Module):
         return every_node_output[-self.num_output_nodes :]
 
 
+class NoConnectionOp(nn.Module):
+    def forward(self, x):
+        return torch.zeros_like(x)
+
+
 class DARTS(pl.LightningModule):
     def __init__(self, available_operations: List[str], num_nodes: int = 6):
         super().__init__()
         self.available_operations = available_operations
         self.cell = Cell(
-            num_intermediate_nodes=num_nodes, available_operations=available_operations
+            num_intermediate_nodes=num_nodes,
+            available_operations=available_operations,
         )
+
+    def get_weights(self):
+        return list(self.cell.nodes.parameters())
+
+    def get_alphas(self):
+        return list(self.cell.nodes[0].edges[0].alphas.parameters())
+
+
+class DARTSTrainer(pl.LightningModule):
+    def __init__(self, model: DARTS, config: dict):
+        super().__init__()
+        self.model = model
+        self.config = config
 
 
 def example():
     available_operations = [
+        "none",
         "max_pool_3x3",
         "conv_3x3",
         "avg_pool_3x3",
@@ -134,6 +198,8 @@ def example():
     ]
     model = DARTS(available_operations=available_operations)
     print(model)
+    trainer = DARTSTrainer(model=model, config={})
+    print(trainer)
 
 
 if __name__ == "__main__":
