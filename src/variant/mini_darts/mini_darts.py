@@ -92,7 +92,7 @@ class MixedOperation(nn.Module):
             elif operation_name == "identity":
                 op = nn.Identity() if in_channels == out_channels else None
             elif operation_name == "none":
-                op = NoConnectionOp()
+                op = Zero()
             else:
                 raise ValueError(f"Operation {operation_name} not supported")
 
@@ -126,7 +126,20 @@ class Cell(nn.Module):
             self.num_input_nodes + self.num_intermediate_nodes + self.num_output_nodes
         )
 
-        self.stem = default_stem(in_channels, out_channels)
+        self.preprocess = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(
+                        in_channels=in_channels,
+                        out_channels=out_channels,
+                        kernel_size=1,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(num_features=out_channels),
+                )
+                for _ in range(num_input_nodes)
+            ]
+        )
 
         self.nodes = nn.ModuleList(Node() for _ in range(self.num_nodes))
 
@@ -135,7 +148,11 @@ class Cell(nn.Module):
     def _initialize_edges(self):
         for node_index in range(self.num_input_nodes, self.num_nodes):
             for edge_index in range(node_index):
-                edge = Edge(available_operations=self.available_operations)
+                edge = Edge(
+                    available_operations=self.available_operations,
+                    in_channels=self.out_channels,
+                    out_channels=self.out_channels,
+                )
                 self.nodes[node_index].edges.append(edge)
 
     def forward(self, input_features):
@@ -160,7 +177,11 @@ class Cell(nn.Module):
         return every_node_output[-self.num_output_nodes :]
 
 
-class NoConnectionOp(nn.Module):
+class Zero(nn.Module):
+    """
+    This edge operation represents no connection between nodes
+    """
+
     def forward(self, x):
         return torch.zeros_like(x)
 
@@ -173,6 +194,8 @@ class DARTS(pl.LightningModule):
             num_intermediate_nodes=num_nodes,
             available_operations=available_operations,
         )
+
+        self.stem = default_stem(in_channels, out_channels)
 
     def get_weights(self):
         return list(self.cell.nodes.parameters())
