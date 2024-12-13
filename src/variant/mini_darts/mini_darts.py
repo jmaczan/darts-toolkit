@@ -16,6 +16,10 @@ def default_stem(in_channels, out_channels):
     return nn.Sequential(
         nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
         nn.BatchNorm2d(out_channels),
+        nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+        nn.BatchNorm2d(out_channels),
+        nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+        nn.BatchNorm2d(out_channels),
     )
 
 
@@ -29,15 +33,17 @@ class Edge(nn.Module):
     def __init__(
         self,
         available_operations: List[str],
-        in_channels: int,
+        in_channels: int = 16,
         out_channels: int = 16,
         alphas=None,
+        reduction: bool = False,
     ):
         super().__init__()
         self.mixed_operation = MixedOperation(
             available_operations=available_operations,
             in_channels=in_channels,
             out_channels=out_channels,
+            reduction=reduction,
         )
         self.alphas = alphas or default_alphas(len(available_operations))
 
@@ -48,10 +54,16 @@ class Edge(nn.Module):
 
 class MixedOperation(nn.Module):
     def __init__(
-        self, available_operations: List[str], in_channels: int, out_channels: int = 16
+        self,
+        available_operations: List[str],
+        in_channels: int,
+        out_channels: int = 16,
+        reduction: bool = False,
     ):
         super().__init__()
         self.ops = nn.ModuleList()
+        self.reduction = reduction
+        stride = 2 if reduction else 1
 
         for operation_name in available_operations:
             if operation_name == "max_pool_3x3":
@@ -106,16 +118,16 @@ class MixedOperation(nn.Module):
 class Cell(nn.Module):
     def __init__(
         self,
-        in_channels: int,
+        in_channels_prev: int,
+        in_channels_prev_prev: int,
         out_channels: int,
         available_operations: List[str],
         num_input_nodes: int = 2,
         num_intermediate_nodes: int = 4,
         num_output_nodes: int = 1,
+        reduction: bool = False,
     ):
         super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
 
         self.available_operations = available_operations
 
@@ -126,7 +138,29 @@ class Cell(nn.Module):
             self.num_input_nodes + self.num_intermediate_nodes + self.num_output_nodes
         )
 
-        self.stem = default_stem(in_channels, out_channels)
+        self.preprocess_prev_prev = nn.Sequential(
+            nn.ReLU(),
+            nn.Conv2d(
+                in_channels=in_channels_prev_prev,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=2 if reduction else 1,
+                padding=0,
+            ),
+            nn.BatchNorm2d(num_features=out_channels),
+        )
+
+        self.preprocess_prev = nn.Sequential(
+            nn.ReLU(),
+            nn.Conv2d(
+                in_channels=in_channels_prev,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=2 if reduction else 1,
+                padding=0,
+            ),
+            nn.BatchNorm2d(num_features=out_channels),
+        )
 
         self.nodes = nn.ModuleList(Node() for _ in range(self.num_nodes))
 
@@ -135,14 +169,18 @@ class Cell(nn.Module):
     def _initialize_edges(self):
         for node_index in range(self.num_input_nodes, self.num_nodes):
             for edge_index in range(node_index):
-                edge = Edge(available_operations=self.available_operations)
+                edge = Edge(
+                    available_operations=self.available_operations,
+                    in_channels=self.channels,
+                    out_channels=self.channels,
+                )
                 self.nodes[node_index].edges.append(edge)
 
     def forward(self, input_features):
-        every_node_output = []
+        s0 = self.preprocess_prev_prev(input_features)
+        s1 = self.preprocess_prev(input_features)
 
-        for _ in range(self.num_input_nodes):
-            every_node_output.append(input_features)
+        every_node_output = [s0, s1]
 
         for node_index in range(
             self.num_input_nodes,
@@ -166,13 +204,47 @@ class NoConnectionOp(nn.Module):
 
 
 class DARTS(pl.LightningModule):
-    def __init__(self, available_operations: List[str], num_nodes: int = 6):
+    def __init__(
+        self,
+        available_operations: List[str],
+        num_nodes: int = 6,
+        layers: int = 20,
+        in_channels: int = 3,
+        init_channels: int = 16,
+        reduction_cell_indices=None,
+    ):
         super().__init__()
         self.available_operations = available_operations
-        self.cell = Cell(
-            num_intermediate_nodes=num_nodes,
-            available_operations=available_operations,
-        )
+        self.stem = default_stem(in_channels, init_channels)
+
+        reduction_cell_indices = [layers // 3, 2 * layers // 3]
+
+        self.cells = nn.ModuleList()
+
+        current_channels = init_channels
+        prev_prev_channels = init_channels
+        prev_channels = init_channels
+
+        for layer_index in range(layers):
+            is_reduction_cell = layer_index in reduction_cell_indices
+
+            if is_reduction_cell:
+                prev_prev_channels = prev_channels
+                prev_channels = current_channels * 2
+                current_channels *= 2
+            else:
+                prev_prev_channels = prev_channels
+                prev_channels = current_channels
+
+            self.cells.append(
+                Cell(
+                    in_channels_prev=prev_channels,
+                    in_channels_prev_prev=prev_prev_channels,
+                    out_channels=current_channels,
+                    available_operations=available_operations,
+                    reduction=is_reduction_cell,
+                )
+            )
 
     def get_weights(self):
         return list(self.cell.nodes.parameters())
