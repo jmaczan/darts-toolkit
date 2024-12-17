@@ -6,6 +6,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def reduction_stride(reduction: bool):
+    return 2 if reduction else 1
+
+
 def default_alphas(num_available_operations):
     return nn.Parameter(
         torch.randn(num_available_operations) * 0.001
@@ -63,13 +67,13 @@ class MixedOperation(nn.Module):
         super().__init__()
         self.ops = nn.ModuleList()
         self.reduction = reduction
-        stride = 2 if reduction else 1
+        stride = reduction_stride(reduction)
 
         for operation_name in available_operations:
             if operation_name == "max_pool_3x3":
-                op = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+                op = nn.MaxPool2d(kernel_size=3, stride=stride, padding=1)
             elif operation_name == "avg_pool_3x3":
-                op = nn.AvgPool2d(kernel_size=3, stride=1, padding=1)
+                op = nn.AvgPool2d(kernel_size=3, stride=stride, padding=1)
             elif operation_name == "conv_3x3":
                 op = nn.Sequential(
                     nn.Conv2d(
@@ -144,7 +148,7 @@ class Cell(nn.Module):
                 in_channels=in_channels_prev_prev,
                 out_channels=out_channels,
                 kernel_size=1,
-                stride=2 if reduction else 1,
+                stride=reduction_stride(reduction),
                 padding=0,
             ),
             nn.BatchNorm2d(num_features=out_channels),
@@ -156,7 +160,7 @@ class Cell(nn.Module):
                 in_channels=in_channels_prev,
                 out_channels=out_channels,
                 kernel_size=1,
-                stride=2 if reduction else 1,
+                stride=reduction_stride(reduction),
                 padding=0,
             ),
             nn.BatchNorm2d(num_features=out_channels),
@@ -207,7 +211,6 @@ class DARTS(pl.LightningModule):
     def __init__(
         self,
         available_operations: List[str],
-        num_nodes: int = 6,
         layers: int = 20,
         in_channels: int = 3,
         init_channels: int = 16,
@@ -217,7 +220,10 @@ class DARTS(pl.LightningModule):
         self.available_operations = available_operations
         self.stem = default_stem(in_channels, init_channels)
 
-        reduction_cell_indices = [layers // 3, 2 * layers // 3]
+        self.reduction_cell_indices = reduction_cell_indices or [
+            layers // 3,
+            2 * layers // 3,
+        ]
 
         self.cells = nn.ModuleList()
 
@@ -226,7 +232,7 @@ class DARTS(pl.LightningModule):
         prev_channels = init_channels
 
         for layer_index in range(layers):
-            is_reduction_cell = layer_index in reduction_cell_indices
+            is_reduction_cell = layer_index in self.reduction_cell_indices
 
             if is_reduction_cell:
                 prev_prev_channels = prev_channels
@@ -246,11 +252,13 @@ class DARTS(pl.LightningModule):
                 )
             )
 
-    def get_weights(self):
-        return list(self.cell.nodes.parameters())
+    def forward(self, x):
+        x = self.stem(x)
 
-    def get_alphas(self):
-        return list(self.cell.nodes[0].edges[0].alphas.parameters())
+        for cell in self.cells:
+            x = cell(x)
+
+        return x
 
 
 class DARTSTrainer(pl.LightningModule):
@@ -258,6 +266,21 @@ class DARTSTrainer(pl.LightningModule):
         super().__init__()
         self.model = model
         self.config = config
+        self.weights_optimizer = Adam(
+            self.model.parameters(), lr=config["training"]["lr"]
+        )
+
+    def training_step(self, batch, batch_idx):
+        """
+        bi-level optimization
+        """
+
+        # weights
+        x, y = batch
+        y_hat = self.model(x)
+        loss = F.cross_entropy(y_hat, y)
+        self.log("train_loss", loss)
+        return loss
 
 
 def example():
@@ -265,6 +288,7 @@ def example():
         "none",
         "max_pool_3x3",
         "conv_3x3",
+        "sep_conv_3x3",
         "avg_pool_3x3",
         "identity",
     ]
